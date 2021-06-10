@@ -3,17 +3,19 @@ An object-oriented bearlibterminal wrapper with the support for complex ASCII
 art and widget-like behaviour.
 """
 
-from bearlibterminal import terminal
-from bear_hug.bear_utilities import BearException,\
+try:
+    from bear_hug import terminal
+except RuntimeError:
+    # Falling back to system installation of bearlibterminal if
+    # DLLs are not available
+    from bearlibterminal import terminal
+from bear_hug.bear_utilities import BearException, \
     BearLoopException
 from bear_hug.event import BearEvent
 
-import inspect
-import os
 import time
 from copy import copy
 from collections import namedtuple
-
 
 WidgetLocation = namedtuple('WidgetLocation', ('pos', 'layer'))
 
@@ -35,14 +37,14 @@ class BearTerminal:
     # kwargs to init are passed to bearlibterminal.terminal.set()
     # Currently only library settings are supported
     _accepted_kwargs = {'encoding': 'terminal', 'size': 'window',
-                       'cellsize': 'window', 'title': 'window', 'icon': 'window',
-                       'resizeable': 'window', 'fullscreen': 'window',
+                        'cellsize': 'window', 'title': 'window', 'icon': 'window',
+                        'resizeable': 'window', 'fullscreen': 'window',
 
-                       'filter': 'input', 'precise-mouse': 'input',
-                       'mouse-cursor': 'input', 'cursor-symbol': 'input',
-                       'cursor-blink-rate': 'input', 'alt-functions': 'input',
+                        'filter': 'input', 'precise-mouse': 'input',
+                        'mouse-cursor': 'input', 'cursor-symbol': 'input',
+                        'cursor-blink-rate': 'input', 'alt-functions': 'input',
 
-                       'postformatting': 'output', 'vsync': 'output',
+                        'postformatting': 'output', 'vsync': 'output',
                         'tab-width': 'output',
 
                         'file': 'log', 'level': 'log', 'mode': 'log'
@@ -114,27 +116,27 @@ class BearTerminal:
 
     # This is misc input and state codes
     misc_input = {0x83: 'TK_MOUSE_X1', 0x84: 'TK_MOUSE_X2',
-    0x85: 'TK_MOUSE_MOVE', 0x86: 'TK_MOUSE_SCROLL',
-                   0x87: 'TK_MOUSE_X', 0x88: 'TK_MOUSE_Y',
-    0x89: 'TK_MOUSE_PIXEL_X', 0x8A: 'TK_MOUSE_PIXEL_Y', 0x8B: 'TK_MOUSE_WHEEL',
-    0x8C: 'TK_MOUSE_CLICKS',
-                   0xC0: 'TK_WIDTH', 0xC1: 'TK_HEIGHT', 0xC2: 'TK_CELL_WIDTH',
-    0xC3: 'TK_CELL_HEIGHT', 0xC4: 'TK_COLOR', 0xC5: 'TK_BKCOLOR',
-    0xC6: 'TK_LAYER', 0xC7: 'TK_COMPOSITION', 0xC8: 'TK_CHAR',
-    0xC9: 'TK_WCHAR', 0xCA: 'TK_EVENT', 0xCB: 'TK_FULLSCREEN',
-                   0xE0: 'TK_CLOSE', 0xE1: 'TK_RESIZED'}
+                  0x85: 'TK_MOUSE_MOVE', 0x86: 'TK_MOUSE_SCROLL',
+                  0x87: 'TK_MOUSE_X', 0x88: 'TK_MOUSE_Y',
+                  0x89: 'TK_MOUSE_PIXEL_X', 0x8A: 'TK_MOUSE_PIXEL_Y', 0x8B: 'TK_MOUSE_WHEEL',
+                  0x8C: 'TK_MOUSE_CLICKS',
+                  0xC0: 'TK_WIDTH', 0xC1: 'TK_HEIGHT', 0xC2: 'TK_CELL_WIDTH',
+                  0xC3: 'TK_CELL_HEIGHT', 0xC4: 'TK_COLOR', 0xC5: 'TK_BKCOLOR',
+                  0xC6: 'TK_LAYER', 0xC7: 'TK_COMPOSITION', 0xC8: 'TK_CHAR',
+                  0xC9: 'TK_WCHAR', 0xCA: 'TK_EVENT', 0xCB: 'TK_FULLSCREEN',
+                  0xE0: 'TK_CLOSE', 0xE1: 'TK_RESIZED'}
 
     # This is the name-to-number mapping, as in bearlibterminal/terminal.py
     # The purpose of this dict is, again, to let bear_hug users work with strs
     # and avoid thinking about constants
     _state_constants = {'TK_BACKSLASH': 49, 'TK_KP_1': 89,
-        'TK_KEY_RELEASED': 256, 'TK_Q': 20, 'TK_4': 33, 'TK_N': 17,
-        'TK_ALIGN_TOP': 4, 'TK_RESIZED': 225, 'TK_ALIGN_RIGHT': 2,
-        'TK_H': 11, 'TK_MOUSE_MIDDLE': 130, 'TK_CELL_WIDTH': 194, 'TK_3': 32,
-        'TK_F10': 67, 'TK_RIGHT': 79, 'TK_ESCAPE': 41, 'TK_KP_6': 94,
-        'TK_COMMA': 54, 'TK_GRAVE': 53, 'TK_PERIOD': 55, 'TK_MOUSE_CLICKS': 140,
-        'TK_KP_3': 91, 'TK_MOUSE_MOVE': 133, 'TK_KP_2': 90,
-        'TK_INPUT_CANCELLED': -1, 'TK_EVENT': 202, 'TK_KP_0': 98,
+                        'TK_KEY_RELEASED': 256, 'TK_Q': 20, 'TK_4': 33, 'TK_N': 17,
+                        'TK_ALIGN_TOP': 4, 'TK_RESIZED': 225, 'TK_ALIGN_RIGHT': 2,
+                        'TK_H': 11, 'TK_MOUSE_MIDDLE': 130, 'TK_CELL_WIDTH': 194, 'TK_3': 32,
+                        'TK_F10': 67, 'TK_RIGHT': 79, 'TK_ESCAPE': 41, 'TK_KP_6': 94,
+                        'TK_COMMA': 54, 'TK_GRAVE': 53, 'TK_PERIOD': 55, 'TK_MOUSE_CLICKS': 140,
+                        'TK_KP_3': 91, 'TK_MOUSE_MOVE': 133, 'TK_KP_2': 90,
+                        'TK_INPUT_CANCELLED': -1, 'TK_EVENT': 202, 'TK_KP_0': 98,
                         'TK_DELETE': 76, 'TK_DOWN': 81, 'TK_CLOSE': 224, 'TK_R': 21,
                         'TK_F9': 66, 'TK_M': 16, 'TK_ALIGN_MIDDLE': 12, 'TK_1': 30, 'TK_5': 34,
                         'TK_WIDTH': 192, 'TK_F': 9, 'TK_G': 10, 'TK_SLASH': 56,
@@ -162,29 +164,31 @@ class BearTerminal:
                         'TK_MOUSE_WHEEL': 139, 'TK_F3': 60, 'TK_L': 15, 'TK_KP_PERIOD': 99,
                         'TK_J': 13, 'TK_F4': 61}
 
-    def __init__(self, font_path='../demo_assets/cp437_12x12.png', font_size='12x12',codepage=437,
+    def __init__(self,
+                 font_path: str = '../demo_assets/cp437_12x12.png',
+                 font_size: str = '12x12',
+                 codepage: str = '437',
                  **kwargs):
-        if kwargs:
-            if any(x not in self._accepted_kwargs for x in kwargs.keys()):
-                raise BearException('Only bearlibterminal library settings '
-                                    +' accepted as kwargs for BearTerminal')
-            self.outstring = ';'.join('{}.{}={}'.format(self._accepted_kwargs[x],
-                                                        x, str(kwargs[x]))
-                                 for x in kwargs)+';'
-        else:
-            self.outstring = None
+
+        # TODO: make font_path system independent via os.path
+        self.font_path = font_path
+        self.font_size = font_size
+        self.codepage = codepage
+        self.outstring = ''
         self.widget_locations = {}
+        self.default_color = 'white'
+        self.currently_pressed = set()  # Buttons currently pressed (see check_input docstring)
         #  This will be one list of drawable pointers per layer. Lists are
         #  not actually allocated until at least one Widget is added to layer
         #  Lists are created when adding the first Widget and are never
         #  destroyed or resized.
         self._widget_pointers = [None for x in range(256)]
-        self.default_color = 'white'
-        # TODO: make font_path system independent via os.path
-        self.font_path = font_path
-        self.font_size = font_size
-        self.codepage = codepage
-        self.currently_pressed = set()   # Buttons currently pressed (see check_input docstring)
+
+        if kwargs:
+            if any(x not in self._accepted_kwargs for x in kwargs.keys()):
+                raise BearException('Only bearlibterminal library settings accepted as kwargs for BearTerminal')
+            for x in kwargs:
+                self.outstring += f'{self._accepted_kwargs[x]}.{x}={str(kwargs[x])};'
 
     #  Methods that replicate or wrap around blt's functions
 
@@ -227,10 +231,33 @@ class BearTerminal:
         """
         terminal.close()
 
+    @property
+    def fullscreen(self):
+        return bool(terminal.get('window.fullscreen'))
+
+    @fullscreen.setter
+    def fullscreen(self, value: bool):
+        """
+        Switch between fullscreen and windowed mode
+        """
+        if not isinstance(value, bool):
+            raise TypeError('terminal.fullscreen only accepts boolean argument')
+        # TODO: fix char scaling in fullscreen
+        if value:
+            # terminal.set(
+            #     'font: {}, size=12x12, resize=16x16, codepage=437'.format(self.font_path))
+            # terminal.set('window.cellsize: 16x16; window.fullscreen=true')
+            terminal.set('window.fullscreen=true')
+        else:
+            # terminal.set(
+            #     'font: {}, size=12x12, codepage=437'.format(
+            #         self.font_path))
+            # terminal.set("window.cellsize:auto; window.fullscreen=false")
+            terminal.set('window.fullscreen=false')
+
     #  Drawing and removing stuff
 
-    def add_widget(self, widget,
-                   pos=(0, 0), layer=0, refresh=False):
+    def add_widget(self, widget, pos=(0, 0), layer=0, refresh=False):
         """
         Add a widget to the terminal and set `widget.terminal` to `self`.
 
@@ -238,11 +265,8 @@ class BearTerminal:
         be added twice.
 
         :param widget: a Widget instance
-
         :param pos: top left corner of the widget
-
         :param layer: layer to place the widget on
-
         :param refresh: whether to refresh terminal after adding the widget. If False, the widget will not be actually shown until the next ``terminal.refresh()`` call
         """
         if widget in self.widget_locations.keys():
@@ -271,7 +295,6 @@ class BearTerminal:
         merely removes it from the terminal.
 
         :param widget: A widget to be removed
-
         :param refresh: whether to refresh the terminal after removing a widget. If False, the widget will be visible until the next ``terminal.refresh()`` call
         """
         corner = self.widget_locations[widget].pos
@@ -279,11 +302,11 @@ class BearTerminal:
         terminal.clear_area(*corner, widget.width, widget.height)
         for y in range(len(widget.chars)):
             for x in range(len(widget.chars[0])):
-                self._widget_pointers[self.widget_locations[widget].layer]\
+                self._widget_pointers[self.widget_locations[widget].layer] \
                     [corner[0] + x][corner[1] + y] = None
         if refresh:
             self.refresh()
-        del(self.widget_locations[widget])
+        del (self.widget_locations[widget])
         widget.terminal = None
         widget.parent = None
 
@@ -295,7 +318,6 @@ class BearTerminal:
         a widget from one layer to another, it should be removed and added anew.
 
         :param widget: A widget to be moved
-
         :param pos: :param refresh: whether to refresh the terminal after removing a widget. If False, the widget won't move on screen until the next ``terminal.refresh()`` call
         """
         layer = self.widget_locations[widget].layer
@@ -319,7 +341,7 @@ class BearTerminal:
         pos = self.widget_locations[widget].pos
         layer = self.widget_locations[widget].layer
         terminal.layer(layer)
-        terminal.clear_area(*self.widget_locations[widget].pos, widget.width, widget.height)
+        # terminal.clear_area(*self.widget_locations[widget].pos, widget.width, widget.height)
         running_color = self.default_color
         for y in range(widget.height):
             for x in range(widget.width):
@@ -341,7 +363,6 @@ class BearTerminal:
         Return the widget currently placed at the given position.
 
         :param pos: Position (a 2-tuple of ints)
-
         :param layer: A layer to look at. If this is set to valid layer number, returns the widget (if any) from that layer. If not set, return the widget from highest layer where a given cell is non-empty.
         """
         if layer:
@@ -445,16 +466,17 @@ class BearLoop:
     :param fps: a number of times per second this loop should process events.
     """
 
-    def __init__(self, terminal, queue, fps=30):
+    def __init__(self, terminal, queue, fps=30, profile=False):
         # Assumes terminal to be running
         self.terminal = terminal
         self.queue = queue
         # The loop listens for service events so that it knows when to shutdown
         self.queue.register_listener(self, 'service')
-        self.frame_time = 1/fps
+        self.frame_time = 1 / fps
         self.stopped = False
         self.last_time = 0
-        
+        self.profile = profile
+
     def run(self):
         """
         Start a loop.
@@ -470,7 +492,7 @@ class BearLoop:
             self.last_time = time.time()
             self._run_iteration(t)
             sleep_time = self.frame_time - time.time() + self.last_time
-            if sleep_time > 0.05*self.frame_time:
+            if sleep_time > 0.05 * self.frame_time:
                 # If frame was finished early, wait for it
                 # But only if there is enough spare time to make it worthwhile.
                 # Otherwise, on a laggy system sleep_time may be positive when
@@ -480,7 +502,7 @@ class BearLoop:
         # When the loop stops, it closes the terminal. Everyone is expected to
         # have caught the shutdown service event
         self.terminal.close()
-               
+
     def stop(self):
         """
         Order the loop to stop.
@@ -488,7 +510,7 @@ class BearLoop:
         It would not actually do it until the current tick is processed.
         """
         self.stopped = True
-    
+
     def _run_iteration(self, time_since_last_tick):
         # Get input events, if any
         for event in self.terminal.check_input():
@@ -501,20 +523,19 @@ class BearLoop:
                                        event_value='tick_over'))
         self.queue.dispatch_events()
         self.terminal.refresh()
-        
+
     def on_event(self, event):
         if event.event_value == 'shutdown':
             self.stopped = True
-            
+
     @property
     def fps(self):
-        return round(1/self.frame_time)
-    
+        return round(1 / self.frame_time)
+
     @fps.setter
     def fps(self, value):
         if not isinstance(value, int):
             raise BearLoopException('Only int acceptable as FPS')
-        self.frame_time = 1/value
-        
-    
+        self.frame_time = 1 / value
+
 #  Misc classes
