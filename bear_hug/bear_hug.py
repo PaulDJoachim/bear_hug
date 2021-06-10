@@ -3,16 +3,13 @@ An object-oriented bearlibterminal wrapper with the support for complex ASCII
 art and widget-like behaviour.
 """
 
-try:
-    from bear_hug import terminal
-except RuntimeError:
-    # Falling back to system installation of bearlibterminal if
-    # DLLs are not available
-    from bearlibterminal import terminal
+from bearlibterminal import terminal
 from bear_hug.bear_utilities import BearException,\
     BearLoopException
 from bear_hug.event import BearEvent
 
+import inspect
+import os
 import time
 from copy import copy
 from collections import namedtuple
@@ -40,21 +37,21 @@ class BearTerminal:
     _accepted_kwargs = {'encoding': 'terminal', 'size': 'window',
                        'cellsize': 'window', 'title': 'window', 'icon': 'window',
                        'resizeable': 'window', 'fullscreen': 'window',
-                       
+
                        'filter': 'input', 'precise-mouse': 'input',
                        'mouse-cursor': 'input', 'cursor-symbol': 'input',
                        'cursor-blink-rate': 'input', 'alt-functions': 'input',
-    
+
                        'postformatting': 'output', 'vsync': 'output',
                         'tab-width': 'output',
 
                         'file': 'log', 'level': 'log', 'mode': 'log'
                         }
-    
+
     # Bearlibterminal's input codes and terminal state codes are converted to
     # constants before emitting events, so that downstream widgets could process
     # them without asking the terminal to explain what the fuck 0x50 is.
-    
+
     # These are codes for keys and mouse buttons going down
     _down_codes = {0x04: 'TK_A', 0x05: 'TK_B', 0x06: 'TK_C', 0x07: 'TK_D',
                    0x08: 'TK_E', 0x09: 'TK_F', 0x0A: 'TK_G', 0x0B: 'TK_H', 0x0C: 'TK_I',
@@ -84,7 +81,7 @@ class BearTerminal:
                    0x70: 'TK_SHIFT', 0x71: 'TK_CONTROL', 0x72: 'TK_ALT',
                    0x80: 'TK_MOUSE_LEFT', 0x81: 'TK_MOUSE_RIGHT',
                    0x82: 'TK_MOUSE_MIDDLE'}
-    
+
     # The same buttons going up.
     # BLT OR's key code with TK_KEY_RELEASED, which is not reversible except by
     # bruteforcing all the keys. Thus, a second dict.
@@ -114,7 +111,7 @@ class BearTerminal:
                  354: 'TK_KP_0', 355: 'TK_KP_PERIOD', 368: 'TK_SHIFT',
                  369: 'TK_CONTROL', 370: 'TK_ALT', 384: 'TK_MOUSE_LEFT',
                  385: 'TK_MOUSE_RIGHT', 386: 'TK_MOUSE_MIDDLE'}
-    
+
     # This is misc input and state codes
     misc_input = {0x83: 'TK_MOUSE_X1', 0x84: 'TK_MOUSE_X2',
     0x85: 'TK_MOUSE_MOVE', 0x86: 'TK_MOUSE_SCROLL',
@@ -126,7 +123,7 @@ class BearTerminal:
     0xC6: 'TK_LAYER', 0xC7: 'TK_COMPOSITION', 0xC8: 'TK_CHAR',
     0xC9: 'TK_WCHAR', 0xCA: 'TK_EVENT', 0xCB: 'TK_FULLSCREEN',
                    0xE0: 'TK_CLOSE', 0xE1: 'TK_RESIZED'}
-    
+
     # This is the name-to-number mapping, as in bearlibterminal/terminal.py
     # The purpose of this dict is, again, to let bear_hug users work with strs
     # and avoid thinking about constants
@@ -164,8 +161,8 @@ class BearTerminal:
                         'TK_SEMICOLON': 51, 'TK_INSERT': 73, 'TK_END': 77, 'TK_F12': 69,
                         'TK_MOUSE_WHEEL': 139, 'TK_F3': 60, 'TK_L': 15, 'TK_KP_PERIOD': 99,
                         'TK_J': 13, 'TK_F4': 61}
-    
-    def __init__(self, font_path='../demo_assets/cp437_12x12.png',
+
+    def __init__(self, font_path='../demo_assets/cp437_12x12.png', font_size='12x12',codepage=437,
                  **kwargs):
         if kwargs:
             if any(x not in self._accepted_kwargs for x in kwargs.keys()):
@@ -185,8 +182,9 @@ class BearTerminal:
         self.default_color = 'white'
         # TODO: make font_path system independent via os.path
         self.font_path = font_path
-        # Buttons currently pressed (see check_input docstring)
-        self.currently_pressed = set()
+        self.font_size = font_size
+        self.codepage = codepage
+        self.currently_pressed = set()   # Buttons currently pressed (see check_input docstring)
 
     #  Methods that replicate or wrap around blt's functions
 
@@ -199,11 +197,11 @@ class BearTerminal:
         """
         terminal.open()
         terminal.set(
-            'font: {}, size=12x12, codepage=437'.format(self.font_path))
+            f'font: {self.font_path}, size={self.font_size}, codepage={self.codepage}')
         if self.outstring:
             terminal.set(self.outstring)
         self.refresh()
-        
+
     def clear(self):
         """
         Remove all widgets from this terminal, but do not close it.
@@ -229,30 +227,6 @@ class BearTerminal:
         """
         terminal.close()
 
-    @property
-    def fullscreen(self):
-        return bool(terminal.get('window.fullscreen'))
-
-    @fullscreen.setter
-    def fullscreen(self, value):
-        """
-        Switch between fullscreen and windowed mode
-        :return:
-        """
-        if not isinstance(value, bool):
-            raise TypeError('terminal.fullscreen only accepts boolean argument')
-        # TODO: fix char scaling in fullscreen
-        if value:
-            # terminal.set(
-            #     'font: {}, size=12x12, resize=16x16, codepage=437'.format(self.font_path))
-            # terminal.set('window.cellsize: 16x16; window.fullscreen=true')
-            terminal.set('window.fullscreen=true')
-        else:
-            # terminal.set(
-            #     'font: {}, size=12x12, codepage=437'.format(
-            #         self.font_path))
-            # terminal.set("window.cellsize:auto; window.fullscreen=false")
-             terminal.set('window.fullscreen=false')
     #  Drawing and removing stuff
 
     def add_widget(self, widget,
@@ -288,7 +262,7 @@ class BearTerminal:
             self._widget_pointers[layer] = [[None for y in range(height)]
                                             for x in range(width)]
         self.update_widget(widget, refresh)
-    
+
     def remove_widget(self, widget, refresh=False):
         """
         Remove widget from the terminal.
@@ -312,7 +286,7 @@ class BearTerminal:
         del(self.widget_locations[widget])
         widget.terminal = None
         widget.parent = None
-        
+
     def move_widget(self, widget, pos, refresh=False):
         """
         Move widget to a new position.
@@ -345,7 +319,7 @@ class BearTerminal:
         pos = self.widget_locations[widget].pos
         layer = self.widget_locations[widget].layer
         terminal.layer(layer)
-        #terminal.clear_area(*self.widget_locations[widget].pos, widget.width, widget.height)
+        terminal.clear_area(*self.widget_locations[widget].pos, widget.width, widget.height)
         running_color = self.default_color
         for y in range(widget.height):
             for x in range(widget.width):
@@ -359,7 +333,7 @@ class BearTerminal:
             terminal.color(self.default_color)
         if refresh:
             self.refresh()
-    
+
     #  Getting terminal info
 
     def get_widget_by_pos(self, pos, layer=None):
@@ -377,7 +351,7 @@ class BearTerminal:
                 if layer_list and layer_list[pos[0]][pos[1]]:
                     return layer_list[pos[0]][pos[1]]
             return None
-        
+
     # Input
     def check_input(self):
         """
@@ -423,7 +397,7 @@ class BearTerminal:
                 raise BearException('Unknown input code {}'.format(in_event))
         for key in self.currently_pressed:
             yield BearEvent('key_down', key)
-    
+
     def check_state(self, query):
         """
         Wrap BLT `state <http://foo.wyrd.name/en:bearlibterminal:reference#state>`_
@@ -471,7 +445,7 @@ class BearLoop:
     :param fps: a number of times per second this loop should process events.
     """
 
-    def __init__(self, terminal, queue, fps=30, profile=False):
+    def __init__(self, terminal, queue, fps=30):
         # Assumes terminal to be running
         self.terminal = terminal
         self.queue = queue
@@ -480,7 +454,6 @@ class BearLoop:
         self.frame_time = 1/fps
         self.stopped = False
         self.last_time = 0
-        self.profile = profile
         
     def run(self):
         """
