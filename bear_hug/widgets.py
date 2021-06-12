@@ -1315,7 +1315,7 @@ class MenuWidget(Layout):
             for y in range(len(bg_chars) - 2):
                 for x in range(len(bg_chars[0]) - 2):
                     bg_chars[y + 1][x + 1] = '\u2588'
-                    bg_colors[y + 1][x + 1] = 'black'
+                    bg_colors[y + 1][x + 1] = 'transparent'
             super().__init__(bg_chars, bg_colors, **kwargs)
         else:
             if background.width < self.w or background.height < self.h:
@@ -1324,7 +1324,7 @@ class MenuWidget(Layout):
             # because the background could be some complex widget, eg animation
             bg_chars = [[' ' for x in range(background.width)]
                         for y in range(background.height)]
-            bg_colors = copy_shape(bg_chars, 'black')
+            bg_colors = copy_shape(bg_chars, 'transparent')
             super().__init__(bg_chars, bg_colors)
             self.background = background
         # Adding header, if any
