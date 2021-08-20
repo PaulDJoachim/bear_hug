@@ -326,9 +326,27 @@ class BearTerminal:
         if refresh:
             self.refresh()
 
+    def string_compiler(self, widget):
+        """
+        Turns the lists of colors and characters into a string for each line of the terminal
+        """
+        string_dict = {}
+        running_color = self.default_color
+        for y in range(widget.height):
+            string_dict[y] = f'[color={widget.colors[y][0]}]'
+            for x in range(widget.width):
+                if widget.colors[y][x] and widget.colors[y][x] != running_color:
+                    running_color = widget.colors[y][x]
+                    string_dict[y] += f'[color={widget.colors[y][x]}]'
+                char = widget.chars[y][x]
+                if isinstance(char, int):
+                    char = chr(char)
+                string_dict[y] += char
+        return string_dict
+
     def update_widget(self, widget, refresh=False):
         """
-        Actually draw widget chars on screen.
+        Actually draw widget strings on screen after compilation by string_compiler.
 
         If ``widget.chars`` or ``widget.colors`` have changed, this method will
         make these changes visible. It is also called by ``self.add_widget()``
@@ -342,19 +360,42 @@ class BearTerminal:
         layer = self.widget_locations[widget].layer
         terminal.layer(layer)
         # terminal.clear_area(*self.widget_locations[widget].pos, widget.width, widget.height)
-        running_color = self.default_color
+        string_dict = self.string_compiler(widget)
         for y in range(widget.height):
-            for x in range(widget.width):
-                # Widget can have None as color for its empty cells
-                if widget.colors[y][x] and widget.colors[y][x] != running_color:
-                    running_color = widget.colors[y][x]
-                    terminal.color(running_color)
-                terminal.put(pos[0] + x, pos[1] + y, widget.chars[y][x])
-                self._widget_pointers[layer][pos[0] + x][pos[1] + y] = widget
-        if running_color != self.default_color:
-            terminal.color(self.default_color)
+            terminal.printf(pos[0], pos[1] + y, string_dict[y])
+            self._widget_pointers[layer][pos[0]][pos[1] + y] = widget
         if refresh:
             self.refresh()
+
+    # def update_widget(self, widget, refresh=False):
+    #     """
+    #     Actually draw widget chars on screen.
+    #
+    #     If ``widget.chars`` or ``widget.colors`` have changed, this method will
+    #     make these changes visible. It is also called by ``self.add_widget()``
+    #     and other methods that have a ``refresh`` argument.
+    #
+    #     :param widget: A widget to be updated.
+    #     """
+    #     if widget not in self.widget_locations:
+    #         raise BearException('Cannot update non-added Widgets')
+    #     pos = self.widget_locations[widget].pos
+    #     layer = self.widget_locations[widget].layer
+    #     terminal.layer(layer)
+    #     # terminal.clear_area(*self.widget_locations[widget].pos, widget.width, widget.height)
+    #     running_color = self.default_color
+    #     for y in range(widget.height):
+    #         for x in range(widget.width):
+    #             # Widget can have None as color for its empty cells
+    #             if widget.colors[y][x] and widget.colors[y][x] != running_color:
+    #                 running_color = widget.colors[y][x]
+    #                 terminal.color(running_color)
+    #             terminal.put(pos[0] + x, pos[1] + y, widget.chars[y][x])
+    #             self._widget_pointers[layer][pos[0] + x][pos[1] + y] = widget
+    #     if running_color != self.default_color:
+    #         terminal.color(self.default_color)
+    #     if refresh:
+    #         self.refresh()
 
     #  Getting terminal info
 
