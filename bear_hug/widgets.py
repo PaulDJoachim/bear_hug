@@ -17,6 +17,7 @@ from bear_hug.event import BearEvent
 from collections import deque
 from json import dumps, loads
 from time import time
+import numpy as np
 
 
 def deserialize_widget(serial, atlas=None):
@@ -165,19 +166,25 @@ class Widget:
     validity is not controlled except by ``WidgetSubclass.__init__()``.
 
     :param chars: a 2-nested list of unicode characters
-
     :param colors: a 2-nested list of colors. Anything that is accepted by ``terminal.color()`` goes here (a color name or a 0xAARRGGBB/0xRRGGBB/0xRGB/0xARGB integer are fine, (r, g, b) tuples are unreliable).
-
     :param z_level: a Z-level to determine objects' overlap. Used by (Scrollable)ECSLayout. Not to be mixed up with a terminal layer, these are two independent systems.
+    :param font: simple font object, provided by widget. Characters will be drawn in this font instead of default (terminal must be configured with font_of same name).
     """
-    def __init__(self, chars, colors, z_level=0):
-        if not isinstance(chars, list) or not isinstance(colors, list):
-            raise BearException('Chars and colors should be lists')
-        if not shapes_equal(chars, colors):
-            raise BearException('Chars and colors should have the same shape')
+    def __init__(self, chars, colors, tile_array=None, z_level=0, font=None):
+        # if not isinstance(chars, list) or not isinstance(colors, list):
+        #     raise BearException('Chars and colors should be lists')
+
         self.z_level = z_level
-        self.chars = chars
-        self.colors = colors
+        self.tile_array = tile_array
+        if chars is not None:
+            if not shapes_equal(chars, colors):
+                raise BearException('Chars and colors should have the same shape')
+            self.chars = chars
+            self.colors = colors
+        else:
+            self.chars = tile_array['char'].tolist()
+            self.colors = tile_array['color'].tolist()
+        self.font = font
         # A widget may want to know about the terminal it's attached to
         self._terminal = None
         # Or a parent
@@ -371,12 +378,15 @@ class Layout(Widget):
 
     :param colors: colors for layout BG.
     """
-    def __init__(self, chars, colors, **kwargs):
-        super().__init__(chars, colors, **kwargs)
+    def __init__(self, chars, colors, tile_array=None, **kwargs):
+        super().__init__(chars, colors, tile_array, **kwargs)
         self.children = []
         # For every position, remember all the widgets that may want to place
         # characters in it, but draw only the latest one
-        self._child_pointers = copy_shape(self.chars, None)
+        if chars is not None:
+            self._child_pointers = copy_shape(self.chars, None)
+        else:
+            self._child_pointers = copy_shape(tile_array['char'].tolist(), None)
         # copy_shape does not work with lists correctly, so.
         for line in range(len(self._child_pointers)):
             for char in range(len(self._child_pointers[0])):
@@ -647,46 +657,89 @@ class ScrollableLayout(Layout):
 
     :param view_size: a 2-tuple (width, height) for the size of visible area.
     """
-    def __init__(self, chars, colors,
+    def __init__(self, chars=None, colors=None, tile_array=None,
                  view_pos=(0, 0), view_size=(10, 10), **kwargs):
-        super().__init__(chars, colors, **kwargs)
+        super().__init__(chars, colors, tile_array, **kwargs)
         if not 0 <= view_pos[0] <= self.width - view_size[0] \
                 or not 0 <= view_pos[1] <= self.height - view_size[1]:
             raise BearLayoutException('Initial viewpoint outside ' +
                                       'ScrollableLayout')
-        if not 0 < view_size[0] <= len(chars[0]) \
-                or not 0 < view_size[1] <= len(chars):
-            raise BearLayoutException('Invalid view field size')
+        if chars is not None:
+            if not 0 < view_size[0] <= len(chars[0]) \
+                    or not 0 < view_size[1] <= len(chars):
+                raise BearLayoutException('Invalid view field size')
+        else:
+            if not 0 < view_size[0] <= tile_array.shape[0] \
+                    or not 0 < view_size[1] <= tile_array.shape[1]:
+                raise BearLayoutException('Invalid view field size')
+
         self.view_pos = view_pos[:]
         self.view_size = view_size[:]
         self._rebuild_self()
-    
+
     def _rebuild_self(self):
         """
         Same as `Layout()._rebuild_self`, but all child positions are also
         offset by `view_pos`. Obviously, only `view_size[1]` lines
         `view_size[0]` long are set as `chars` and `colors`.
         """
-        chars = [[' ' for x in range(self.view_size[0])] \
-                 for y in range(self.view_size[1])]
-        colors = copy_shape(chars, None)
-        for line in range(self.view_size[1]):
-            for char in range(self.view_size[0]):
-                for child in self._child_pointers[self.view_pos[1]+line] \
-                                     [self.view_pos[0] + char][::-1]:
-                    # Addressing the correct child position
-                    c = child.chars[self.view_pos[1] + line-self.child_locations[child][1]] \
-                        [self.view_pos[0] + char-self.child_locations[child][0]]
-                    if c != ' ':
-                        # Spacebars are used as empty space and are transparent
-                        chars[line][char] = c
-                        break
-                colors[line][char] = \
-                    child.colors[self.view_pos[1] + line - self.child_locations[child][1]] \
-                    [self.view_pos[0] + char - self.child_locations[child][0]]
+
+        # print(f'from {self.view_pos[1]} to {self.view_pos[1]+self.view_size[1]} and from {self.view_pos[0]} to {self.view_pos[0]+self.view_size[0]}')
+        view = self.tile_array[self.view_pos[1]:self.view_pos[1]+self.view_size[1], self.view_pos[0]:self.view_pos[0]+self.view_size[0]]
+        chars = view['char'].tolist()
+        colors = view['color'].tolist()
+
+        # TODO is this important? Much faster without... not sure what it's doing
+        #
+        # chars = [[' ' for x in range(self.view_size[0])] \
+        #          for y in range(self.view_size[1])]
+        # # copies that array
+        # colors = copy_shape(chars, None)
+        # for line in range(self.view_size[1]):
+        #     for char in range(self.view_size[0]):
+        #         for child in self._child_pointers[self.view_pos[1]+line] \
+        #                              [self.view_pos[0] + char][::-1]:
+        #             # Addressing the correct child position
+        #             c = child.chars[self.view_pos[1] + line-self.child_locations[child][1]] \
+        #                 [self.view_pos[0] + char-self.child_locations[child][0]]
+        #             if c != ' ':
+        #                 # Spacebars are used as empty space and are transparent
+        #                 chars[line][char] = c
+        #                 break
+        #         colors[line][char] = \
+        #             child.colors[self.view_pos[1] + line - self.child_locations[child][1]] \
+        #             [self.view_pos[0] + char - self.child_locations[child][0]]
+
         self.chars = chars
         self.colors = colors
-    
+
+    ##### OLD VERSION
+    # def _rebuild_self(self):
+    #     """
+    #     Same as `Layout()._rebuild_self`, but all child positions are also
+    #     offset by `view_pos`. Obviously, only `view_size[1]` lines
+    #     `view_size[0]` long are set as `chars` and `colors`.
+    #     """
+    #     chars = [[' ' for x in range(self.view_size[0])] \
+    #              for y in range(self.view_size[1])]
+    #     colors = copy_shape(chars, None)
+    #     for line in range(self.view_size[1]):
+    #         for char in range(self.view_size[0]):
+    #             for child in self._child_pointers[self.view_pos[1]+line] \
+    #                                  [self.view_pos[0] + char][::-1]:
+    #                 # Addressing the correct child position
+    #                 c = child.chars[self.view_pos[1] + line-self.child_locations[child][1]] \
+    #                     [self.view_pos[0] + char-self.child_locations[child][0]]
+    #                 if c != ' ':
+    #                     # Spacebars are used as empty space and are transparent
+    #                     chars[line][char] = c
+    #                     break
+    #             colors[line][char] = \
+    #                 child.colors[self.view_pos[1] + line - self.child_locations[child][1]] \
+    #                 [self.view_pos[0] + char - self.child_locations[child][0]]
+    #     self.chars = chars
+    #     self.colors = colors
+
     def resize_view(self, new_size):
         # TODO: support resizing view.
         # This will require updating the pointers in terminal or parent layout
@@ -706,7 +759,7 @@ class ScrollableLayout(Layout):
                 or not 0 <= pos[1] <= len(self._child_pointers)-self.view_size[1]:
             raise BearLayoutException('Scrolling to invalid position')
         self.view_pos = pos
-    
+
     def scroll_by(self, shift):
         """
         Move field of view by ``shift[0]`` to the right and by ``shift[1]`` down.
