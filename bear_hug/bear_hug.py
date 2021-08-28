@@ -16,6 +16,7 @@ from bear_hug.event import BearEvent
 import time
 from copy import copy
 from collections import namedtuple
+from profilehooks import profile
 
 WidgetLocation = namedtuple('WidgetLocation', ('pos', 'layer'))
 
@@ -168,12 +169,13 @@ class BearTerminal:
                  font_path: str = '../demo_assets/cp437_12x12.png',
                  font_size: str = '12x12',
                  codepage: str = '437',
+                 font2=None,
                  **kwargs):
 
         # TODO: make font_path system independent via os.path
-        self.font_path = font_path
-        self.font_size = font_size
-        self.codepage = codepage
+        self.font_path, self.font_size, self.codepage = font_path, font_size, codepage
+        self.font2_name, self.font2_path, self.font2_size, self.font2_spacing \
+            = font2.name, font2.path, font2.size, font2.spacing
         self.outstring = ''
         self.widget_locations = {}
         self.default_color = 'white'
@@ -202,6 +204,9 @@ class BearTerminal:
         terminal.open()
         terminal.set(
             f'font: {self.font_path}, size={self.font_size}, codepage={self.codepage}')
+        if self.font2_path:
+            terminal.set(
+                f'{self.font2_name} font: {self.font2_path}, size={self.font2_size}, spacing={self.font2_spacing}')
         if self.outstring:
             terminal.set(self.outstring)
         self.refresh()
@@ -326,6 +331,7 @@ class BearTerminal:
         if refresh:
             self.refresh()
 
+    # @profile(immediate=True)
     def string_compiler(self, widget):
         """
         Turns the lists of colors and characters into a string for each line of the terminal
@@ -334,13 +340,13 @@ class BearTerminal:
         running_color = self.default_color
         for y in range(widget.height):
             string_dict[y] = f'[color={widget.colors[y][0]}]'
+            if widget.font:
+                string_dict[y] += f'[font={widget.font.name}]'
             for x in range(widget.width):
                 if widget.colors[y][x] and widget.colors[y][x] != running_color:
                     running_color = widget.colors[y][x]
                     string_dict[y] += f'[color={widget.colors[y][x]}]'
                 char = widget.chars[y][x]
-                if isinstance(char, int):
-                    char = chr(char)
                 string_dict[y] += char
         return string_dict
 
@@ -359,10 +365,16 @@ class BearTerminal:
         pos = self.widget_locations[widget].pos
         layer = self.widget_locations[widget].layer
         terminal.layer(layer)
-        # terminal.clear_area(*self.widget_locations[widget].pos, widget.width, widget.height)
+        line_step = 1
+
+        if widget.font:
+            line_step = widget.font.space_y
+
+        terminal.clear_area(*pos, widget.width * line_step, widget.height * line_step)
+
         string_dict = self.string_compiler(widget)
-        for y in range(widget.height):
-            terminal.printf(pos[0], pos[1] + y, string_dict[y])
+        for y in range(0, widget.height):
+            terminal.printf(pos[0], pos[1] + y * line_step, string_dict[y])
             self._widget_pointers[layer][pos[0]][pos[1] + y] = widget
         if refresh:
             self.refresh()
