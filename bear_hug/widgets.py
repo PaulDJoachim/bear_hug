@@ -1357,7 +1357,7 @@ class MenuWidget(Layout):
         self.h = 3
         self.w = 4
         self.color = color
-        for item in items:
+        for item in items:  # add all the menu buttons
             self._add_item(item)
         if terminal and not isinstance(terminal, BearTerminal):
             raise TypeError(f'{type(terminal)} used as a terminal for MenuWidget instead of BearTerminal')
