@@ -166,16 +166,19 @@ class BearTerminal:
                         'TK_J': 13, 'TK_F4': 61}
 
     def __init__(self,
-                 font_path: str = '../demo_assets/cp437_12x12.png',
-                 font_size: str = '12x12',
+                 # font_path: str = '../demo_assets/cp437_12x12.png',
+                 # font_size: str = '12x12',
                  codepage: str = '437',
+                 default_font=None,
                  font2=None,
                  **kwargs):
 
         # TODO: make font_path system independent via os.path
-        self.font_path, self.font_size, self.codepage = font_path, font_size, codepage
-        self.font2_name, self.font2_path, self.font2_size, self.font2_spacing \
-            = font2.name, font2.path, font2.size, font2.spacing
+        self.font_path, self.font_size, self.codepage \
+            = default_font.path, default_font.size, codepage
+        if font2:
+            self.font2_name, self.font2_path, self.font2_size, self.font2_spacing \
+                = font2.name, font2.path, font2.size, font2.spacing
         self.outstring = ''
         self.widget_locations = {}
         self.default_color = 'white'
@@ -203,10 +206,10 @@ class BearTerminal:
         """
         terminal.open()
         terminal.set(
-            f'font: {self.font_path}, size={self.font_size}, codepage={self.codepage}')
-        if self.font2_path:
+            f'font: {self.font_path}, size={self.font_size}, codepage={self.codepage};')
+        if hasattr(self, 'font2_path'):  # if there's a font2: set it
             terminal.set(
-                f'{self.font2_name} font: {self.font2_path}, size={self.font2_size}, spacing={self.font2_spacing}')
+                f'{self.font2_name} font: {self.font2_path}, size={self.font2_size}, spacing={self.font2_spacing}, codepage={self.codepage};')
         if self.outstring:
             terminal.set(self.outstring)
         self.refresh()
@@ -304,7 +307,11 @@ class BearTerminal:
         """
         corner = self.widget_locations[widget].pos
         terminal.layer(self.widget_locations[widget].layer)
-        terminal.clear_area(*corner, widget.width, widget.height)
+        if widget.font:  # if the widget uses a font, make sure to account for its spacing when removing
+            terminal.clear_area(*corner, widget.width * widget.font.space_x, widget.height * widget.font.space_y)
+        else:
+            terminal.clear_area(*corner, widget.width, widget.height)
+        print(f'x={len(widget.chars[0])} y = {len(widget.chars)}')
         for y in range(len(widget.chars)):
             for x in range(len(widget.chars[0])):
                 self._widget_pointers[self.widget_locations[widget].layer] \
@@ -342,12 +349,12 @@ class BearTerminal:
             string_dict[y] = f'[color={widget.colors[y][0]}]'
             if widget.font:
                 string_dict[y] += f'[font={widget.font.name}]'
-            for x in range(widget.width):
-                if widget.colors[y][x] and widget.colors[y][x] != running_color:
-                    running_color = widget.colors[y][x]
-                    string_dict[y] += f'[color={widget.colors[y][x]}]'
+            for x in range(widget.width):  # for the row
+                if widget.colors[y][x] and widget.colors[y][x] != running_color:  # if the color has changed
+                    running_color = widget.colors[y][x]  # change the running color
+                    string_dict[y] += f'[color={widget.colors[y][x]}]'  # and add arg to string
                 char = widget.chars[y][x]
-                string_dict[y] += char
+                string_dict[y] += char  # add the character to the string dict
         return string_dict
 
     def update_widget(self, widget, refresh=False):
