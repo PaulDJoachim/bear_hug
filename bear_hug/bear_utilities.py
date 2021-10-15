@@ -26,6 +26,7 @@ def shapes_equal(a, b):
 
 
 def copy_shape(l, value=None):
+    # TODO replace all calls to copy_shape with fast numpy array copies or Python copy.deepcopy
     """
     Takes a nested list and returns the new list of the same shape, completely
     filled with the same value.

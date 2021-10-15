@@ -18,7 +18,8 @@ from collections import deque
 from json import dumps, loads
 from time import time
 import numpy as np
-
+from profilehooks import profile
+import copy
 
 def deserialize_widget(serial, atlas=None):
     """
@@ -378,19 +379,20 @@ class Layout(Widget):
 
     :param colors: colors for layout BG.
     """
+    # @profile(immediate=True)
     def __init__(self, chars, colors, tile_array=None, **kwargs):
         super().__init__(chars, colors, tile_array, **kwargs)
         self.children = []
         # For every position, remember all the widgets that may want to place
         # characters in it, but draw only the latest one
         if chars is not None:
-            self._child_pointers = copy_shape(self.chars, None)
+            self._child_pointers = copy.deepcopy(self.chars)
+            for line in range(len(self._child_pointers)):
+                for char in range(len(self._child_pointers[0])):
+                    self._child_pointers[line][char] = []
         else:
-            self._child_pointers = copy_shape(tile_array['char'].tolist(), None)
-        # copy_shape does not work with lists correctly, so.
-        for line in range(len(self._child_pointers)):
-            for char in range(len(self._child_pointers[0])):
-                self._child_pointers[line][char] = []
+            self._child_pointers = np.empty(shape=tile_array.shape, dtype=object)  # create an empty array same size as the chars
+
         self.child_locations = {}
         # The widget with Layout's chars and colors is created and added to the
         # Layout as the first child. It is done even if both are empty, just in
@@ -445,9 +447,16 @@ class Layout(Widget):
         self.child_locations[child] = pos
         child.terminal = self.terminal
         child.parent = self
-        for y in range(len(child.chars)):
-            for x in range(len(child.chars[0])):
-                self._child_pointers[pos[1] + y][pos[0] + x].append(child)
+
+        # if child_pointers are in a numpy array, add the widget to corresponding slice locations
+        if isinstance(self._child_pointers, np.ndarray):
+            self._child_pointers[pos[0]:len(child.chars[0]), pos[1]:len(child.chars)] = child
+        # TODO get rid of nested lists and use numpy arrays for everything possible
+        else:  # if child_pointers are nested lists, iterate over each widget location and add widget
+            for y in range(len(child.chars)):
+                for x in range(len(child.chars[0])):
+                    self._child_pointers[pos[1] + y][pos[0] + x].append(child)
+
         self.needs_redraw = True
 
     def remove_child(self, child, remove_completely=True):
@@ -507,6 +516,7 @@ class Layout(Widget):
         self.needs_redraw = True
         
     def _rebuild_self(self):
+        # TODO rewrite this to use numpy arrays
         """
         Build fresh chars and colors for self
         """
