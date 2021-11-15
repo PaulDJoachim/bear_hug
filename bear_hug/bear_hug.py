@@ -343,8 +343,10 @@ class BearTerminal:
         """
         Turns the lists of colors and characters into a string for each line of the terminal
         """
+        # TODO try using numpy tobytes here
         string_dict = {}
         running_color = self.default_color
+        print('widget height', widget.height)
         for y in range(widget.height):
             string_dict[y] = f'[color={widget.colors[y][0]}]'
             if widget.font:

@@ -5,7 +5,8 @@ Includes a series of useful functions and all bear_hug exception classes.
 """
 
 from copy import deepcopy
-
+import numpy as np
+from tile_types import render_dt
 
 def shapes_equal(a, b):
     """
@@ -145,6 +146,51 @@ def blit(l1, l2, x, y):
         for x_offset in range(len(l2[0])):
             r[y+y_offset][x+x_offset] = l2[y_offset][x_offset]
     return r
+
+
+def generate_square(size, line_width='single'):
+    """
+    Generate a 2D numpy array for a box bounded by pseudographic lines.
+
+    Uses CP437 chars 0xB3-0xDA translated to Unicode points (see
+    `here<http://www.unicode.org/Public/MAPPINGS/VENDORS/MICSFT/PC/CP437.TXT>`_
+    for the translation table)
+
+    :param size: an (xsize, ysize) tuple
+
+    :param line_width: str. Either 'single' or 'double'
+
+    :return: a nested list of chars.
+    """
+    x, y = size
+    if x < 2 or y < 2:
+        raise BearException('Square size should be at least 2 by 2 chars')
+    square = np.full(shape=size, fill_value=render_dt, dtype=render_dt)
+    square['char'] = ' '
+    if line_width == 'single':
+        square[0, 0]['char'] = '┌'
+        square[0, -1]['char'] = '┐'
+        square[-1, 0]['char'] = '└'
+        square[-1, -1]['char'] = '┘'
+        square[0, 1:-1]['char'] = '─'
+        square[-1, 1:-1]['char'] = '─'
+        square[1:-1, 0]['char'] = '│'
+        square[1:-1, -1]['char'] = '│'
+        return square
+    elif line_width == 'double':
+        square[0, 0]['char'] = '╔'
+        square[0, -1]['char'] = '╗'
+        square[-1, 0]['char'] = '╚'
+        square[-1, -1]['char'] = '╝'
+        square[0, 1:-1]['char'] = '═'
+        square[-1, 1:-1]['char'] = '═'
+        square[1:-1, 0]['char'] = '║'
+        square[1:-1, -1]['char'] = '║'
+        import pprint
+        pprint.pprint(square['char'])
+
+        return square
+    raise BearException('Line width should be either single or double')
 
 
 def generate_box(size, line_width='single'):

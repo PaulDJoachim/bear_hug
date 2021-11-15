@@ -10,7 +10,7 @@ import inspect
 
 from bear_hug.bear_hug import BearTerminal
 from bear_hug.bear_utilities import shapes_equal, blit, copy_shape,\
-    slice_nested, generate_box, \
+    slice_nested, generate_box, generate_square,\
     BearException, BearLayoutException, BearJSONException
 from bear_hug.event import BearEvent
 
@@ -20,6 +20,8 @@ from time import time
 import numpy as np
 from profilehooks import profile
 import copy
+from tile_types import render_dt, Color
+
 
 def deserialize_widget(serial, atlas=None):
     """
@@ -123,10 +125,8 @@ class Widget:
     saves some work on not redrawing them unless the Widget itself considers it
     necessary.
 
-    Under the hood, this class does little more than store two 2-nested lists of
-    ``chars`` and ``colors`` (for characters that comprise the image and their
-    colors). These two should be exactly the same shape, otherwise a
-    ``BearException`` is raised.
+    Under the hood, this class does little more than store a 2D numpy array with
+    character and color data.
     
     Widgets can be serialized into JSON similarly to Components and Entities.
     `repr(widget)` is used for serialization and should generate a valid
@@ -171,25 +171,16 @@ class Widget:
     :param z_level: a Z-level to determine objects' overlap. Used by (Scrollable)ECSLayout. Not to be mixed up with a terminal layer, these are two independent systems.
     :param font: simple font object, provided by widget. Characters will be drawn in this font instead of default (terminal must be configured with font_of same name).
     """
-    def __init__(self, chars, colors, tile_array=None, z_level=0, font=None):
+    def __init__(self, tile_array, chars=None, colors=None, z_level=0, font=None):
         # if not isinstance(chars, list) or not isinstance(colors, list):
         #     raise BearException('Chars and colors should be lists')
 
         self.z_level = z_level
         self.tile_array = tile_array
-        if chars is not None:
-            if not shapes_equal(chars, colors):
-                raise BearException('Chars and colors should have the same shape')
-            self.chars = chars
-            self.colors = colors
-        else:
-            self.chars = tile_array['char'].tolist()
-            self.colors = tile_array['color'].tolist()
         self.font = font
-        # A widget may want to know about the terminal it's attached to
-        self._terminal = None
-        # Or a parent
-        self._parent = None
+        self.hidden = False  # skips this widget's tile data when rendering
+        self._terminal = None  # A widget may want to know about the terminal it's attached to
+        self._parent = None  # Or a parent
         
     def on_event(self, event):
         # Root widget does not raise anything here, because Widget() can be
@@ -359,12 +350,11 @@ class Layout(Widget):
     """
     A widget that can add others as its children.
 
-    All children get drawn to its chars and colors, and are thus displayed
-    within a single bearlibterminal layer. Therefore, if children overlap each
-    other, the lower one is hidden completely. In the resolution of who covers
-    whom, a newer child always wins. The layout does not explicitly pass events
-    to its children, they are expected to subscribe to event queue by
-    themselves.
+    All children get drawn to its tile array, and are displayed
+    within a single bearlibterminal layer. If mulitiple children are overlapping,
+    the more recent one will cover the conflicting tiles of the older one.
+    The layout does not explicitly pass events to its children,
+    they are expected to subscribe to event queue by themselves.
 
     The Layout is initialized with a single child, which is given chars and
     colors provided at Layout creation. This child is available as
@@ -374,30 +364,28 @@ class Layout(Widget):
     children have updated or not.
     
     Does not support JSON serialization
-
-    :param chars: chars for layout BG.
-
-    :param colors: colors for layout BG.
     """
     # @profile(immediate=True)
-    def __init__(self, chars, colors, tile_array=None, **kwargs):
-        super().__init__(chars, colors, tile_array, **kwargs)
-        self.children = []
-        # For every position, remember all the widgets that may want to place
-        # characters in it, but draw only the latest one
-        if chars is not None:
-            self._child_pointers = copy.deepcopy(self.chars)
-            for line in range(len(self._child_pointers)):
-                for char in range(len(self._child_pointers[0])):
-                    self._child_pointers[line][char] = []
-        else:
-            self._child_pointers = np.empty(shape=tile_array.shape, dtype=object)  # create an empty array same size as the chars
+    def __init__(self, tile_array=None, **kwargs):
+        super().__init__(tile_array, **kwargs)
+        self.children = []  # list of child widget objects (tile arrays)
+        print('Warning: layout children have been reset. If you see this message twice you\'re probably doing it wrong')
 
-        self.child_locations = {}
+        # For every position in the tile_array, remember all the child widgets that may want to place
+        # characters in it by recording them in an identically shaped boolean array.
+        # Each child adds a new boolean mask to the array by expanding the Z layer with values corresponding to position
+        # Only the latest addition is actually stored in self.tile_array to be rendered.
+
+        # create a 3d array of bools to hold the layout children position data
+        sy, sx = self.tile_array.shape
+        # TODO figure out if we still want/need child pointers
+        self._child_pointers = np.zeros(shape=(sy, sx, 1), dtype=bool)
+        self.child_locations = {}  # stores child widgets as keys paired with their position tuples
+
         # The widget with Layout's chars and colors is created and added to the
         # Layout as the first child. It is done even if both are empty, just in
         # case someone wants to add background later
-        w = Widget(self.chars, self.colors)
+        w = Widget(tile_array)
         self.add_child(w, pos=(0, 0))
         self.needs_redraw = False
     
@@ -417,83 +405,79 @@ class Layout(Widget):
             child.terminal = value
         
     # Operations on children
-    def add_child(self, child, pos, skip_checks = False):
+    def add_child(self, child, pos):
         """
         Add a widget as a child at a given position.
 
         The child has to be a Widget or a Widget subclass that haven't yet been
         added to this Layout and whose dimensions are less than or equal to the
-        Layout's. The position is in the Layout coordinates, ie relative to its
+        Layout's. The position is in the Layout coordinates in relation to its
         top left corner.
 
         :param child: A widget to add.
 
         :param pos: A widget position, (x, y) 2-tuple
         """
+        layout_y, layout_x = self.tile_array.shape
+        child_y, child_x = child.tile_array.shape
+        pos_y, pos_x = pos
         if not isinstance(child, Widget):
             raise BearLayoutException('Cannot add non-Widget to a Layout')
-        if child in self.children and not skip_checks:
+        if child in self.children:
             raise BearLayoutException('Cannot add the same widget to layout twice')
-        if len(child.chars) > len(self._child_pointers) or \
-                len(child.chars[0]) > len(self._child_pointers[0]):
+        if layout_y < child_y or layout_x < child_x:
             raise BearLayoutException('Cannot add child that is bigger than a Layout')
-        if len(child.chars) + pos[1] > len(self._child_pointers) or \
-                len(child.chars[0]) + pos[0] > len(self._child_pointers[0]):
+        if child_y + pos_y > layout_y or child_x + pos_x > layout_x:
             raise BearLayoutException('Child won\'t fit at this position')
         if child is self:
             raise BearLayoutException('Cannot add Layout as its own child')
-        if not skip_checks:
-            self.children.append(child)
-        self.child_locations[child] = pos
+
+        self.children.append(child)  # add the child to the layout's list of children
+        self.child_locations[child] = pos  # add the child's position to the dictionary of positions
         child.terminal = self.terminal
         child.parent = self
 
-        # if child_pointers are in a numpy array, add the widget to corresponding slice locations
-        if isinstance(self._child_pointers, np.ndarray):
-            self._child_pointers[pos[0]:len(child.chars[0]), pos[1]:len(child.chars)] = child
-        # TODO get rid of nested lists and use numpy arrays for everything possible
-        else:  # if child_pointers are nested lists, iterate over each widget location and add widget
-            for y in range(len(child.chars)):
-                for x in range(len(child.chars[0])):
-                    self._child_pointers[pos[1] + y][pos[0] + x].append(child)
+        child_index = len(self.children) - 1
+        if child_index > 0:  # if this is not first child, add a new mask layer on the z axis of _child_pointers
+            self._child_pointers = np.concatenate(self._child_pointers, np.zeros(shape=self.tile_array.shape, dtype=bool), axis=2,)
+        # set bool mask to true at corresponding slice locations
+        self._child_pointers[pos_y:child_y, pos_x:child_x, child_index] = True
 
         self.needs_redraw = True
 
-    def remove_child(self, child, remove_completely=True):
+    def remove_child(self, child):
         """
-        Remove a child from a Layout.
+        Removes a child from a Layout by deleting its pointer layer and self.children entry
 
         :param child: the child to remove
-
-        :param remove_completely: if False, the child is only removed from the
-        screen, but remains in the children list. This is not intended to be
-        used and is included only to prevent ``self.move_child`` from messing
-        with child order.
         """
         if child not in self.children:
-            raise BearLayoutException('Layout can only remove its child')
-        # process pointers
-        for y in range(len(child.chars)):
-            for x in range(len(child.chars[0])):
-                self._child_pointers[self.child_locations[child][1] + y] \
-                        [self.child_locations[child][0] + x].remove(child)
-                self.needs_redraw = True
-        if remove_completely:
-            del(self.child_locations[child])
-            self.children.remove(child)
-            child.terminal = None
-            child.parent = None
+            raise BearLayoutException('Layout can only remove its own child')
+
+        child_index = self.children.index(child)
+        self._child_pointers = np.delete(self._child_pointers,child_index,2)
+        del(self.child_locations[child])
+        self.children.remove(child)
+        child.terminal = None
+        child.parent = None
+        self.needs_redraw = True
     
     def move_child(self, child, new_pos):
         """
-        Remove the child and add it at a new position.
+        Move the child by altering its pointer mask.
 
         :param child: A child Widget
-
         :param new_pos: An (x, y) 2-tuple within the layout.
         """
-        self.remove_child(child, remove_completely=False)
-        self.add_child(child, pos=new_pos, skip_checks=True)
+        child_y, child_x = child.tile_array.shape
+        pos_y, pos_x = new_pos
+        child_index = self.children.index(child)
+
+        # TODO add a check to make sure new position is in range
+        self._child_pointers[:, :, child_index] = False  # wipe the child's pointer mask
+        self._child_pointers[pos_y:child_y, pos_x:child_x, child_index] = True  # remask at new position
+        self.child_locations[child] = new_pos
+        self.needs_redraw = True
     
     # BG's chars and colors are not meant to be set directly
     @property
@@ -502,6 +486,7 @@ class Layout(Widget):
     
     @background.setter
     def background(self, value):
+        # TODO rewrite this to use numpy arrays
         if not isinstance(value, Widget):
             raise BearLayoutException('Only Widget can be added as background')
         if not shapes_equal(self.chars, value.chars):
@@ -516,38 +501,23 @@ class Layout(Widget):
         self.needs_redraw = True
         
     def _rebuild_self(self):
-        # TODO rewrite this to use numpy arrays
         """
-        Build fresh chars and colors for self
+        Rebuild the layout's tile_array by reverse iterating on its children and masking any changes
         """
-        chars = copy_shape(self.chars, ' ')
-        colors = copy_shape(self.colors, None)
-        for line in range(len(chars)):
-            for char in range(len(chars[0])):
-                highest_z = 0
-                col = None
-                c = ' '
-                for child in self._child_pointers[line][char][::]:
-                    # Select char and color from lowest widget (one with max y
-                    # for bottom).
-                    # If two widgets are equally low, pick newer one
-                    if child.z_level >= highest_z:
-                        tmp_c = child.chars \
-                            [line - self.child_locations[child][1]] \
-                            [char - self.child_locations[child][0]]
-                        if c != ' ' and tmp_c in (' ', 32, None):
-                            continue
-                        else:
-                            highest_z = child.z_level
-                            c = tmp_c
-                            col = child.colors \
-                                [line - self.child_locations[child][1]] \
-                                [char - self.child_locations[child][0]]
-                chars[line][char] = c
-                colors[line][char] = col
-        self.chars = chars
-        self.colors = colors
-    
+        self.tile_array = np.ma.masked_array(data=self.tile_array, mask=False)  # reset any previous mask
+
+        for child in reversed(self.children):
+            if not np.all(self.tile_array.mask) and not child.hidden:  # if not every tile masked and not a hidden child
+                child_y, child_x = child.tile_array.shape
+                pos_y, pos_x = self.child_locations[child]
+                # add child's tiles to layout tile_array, indices masked by previous iterations won't be changed
+                self.tile_array[pos_y:child_y, pos_x: child_x] = child.tile_array
+                # mask the affected tiles to prevent lower children from overwriting them
+                self.tile_array.mask[pos_y:child_y, pos_x: child_x] = True
+            else:  # if all tiles are masked the tile_array is complete
+                return
+        raise BearLayoutException('Tile array not fully masked, missing tile data')
+
     def on_event(self, event):
         """
         Redraw itself, if necessary
@@ -648,36 +618,32 @@ class ScrollBar(Widget):
     def __repr__(self):
         raise BearException('ScrollBar does not support __repr__ serialization')
 
+class ScrollableWidget(Widget):
+    """
+    A widget that can show only a part ot its surface.
+
+    Unlike the ScrollableLayout, it does not support children.
+    """
+
 
 class ScrollableLayout(Layout):
     """
     A Layout that can show only a part of its surface.
     
-    Like a Layout, accepts `chars` and `colors` on creation, which should be the
+    Like a Layout, accepts a numpy tile_array which should be the
     size of the entire layout, not the visible area. The latter is initialized
     by `view_pos` and `view_size` arguments.
     
     Does not support JSON serialization.
 
-    :param chars: Layout BG chars.
-
-    :param colors: Layout BG colors.
-
     :param view_pos: a 2-tuple (x,y) for the top left corner of visible area, in Layout coordinates.
-
     :param view_size: a 2-tuple (width, height) for the size of visible area.
     """
-    def __init__(self, chars=None, colors=None, tile_array=None,
-                 view_pos=(0, 0), view_size=(10, 10), **kwargs):
-        super().__init__(chars, colors, tile_array, **kwargs)
+    def __init__(self, tile_array=None, view_pos=(0, 0), view_size=(10, 10), **kwargs):
+        super().__init__(tile_array, **kwargs)
         if not 0 <= view_pos[0] <= self.width - view_size[0] \
                 or not 0 <= view_pos[1] <= self.height - view_size[1]:
-            raise BearLayoutException('Initial viewpoint outside ' +
-                                      'ScrollableLayout')
-        if chars is not None:
-            if not 0 < view_size[0] <= len(chars[0]) \
-                    or not 0 < view_size[1] <= len(chars):
-                raise BearLayoutException('Invalid view field size')
+            raise BearLayoutException('Initial viewpoint outside ScrollableLayout')
         else:
             if not 0 < view_size[0] <= tile_array.shape[0] \
                     or not 0 < view_size[1] <= tile_array.shape[1]:
@@ -1356,7 +1322,7 @@ class MenuWidget(Layout):
     :param activation_sound: str. A sound which should be played (vai ``play_sound`` BearEvent) when a button is pressed
     """
     def __init__(self, dispatcher, terminal=None, items=[], header=None,
-                 color='white', items_pos=(2, 2),
+                 color=Color.WHITE, items_pos=(2, 2),
                  background=None,
                  switch_sound=None,
                  activation_sound=None,
@@ -1372,24 +1338,23 @@ class MenuWidget(Layout):
         if terminal and not isinstance(terminal, BearTerminal):
             raise TypeError(f'{type(terminal)} used as a terminal for MenuWidget instead of BearTerminal')
         # Set background, if supplied
-        if not background:
-            bg_chars = generate_box((self.w, self.h), 'double')
-            bg_colors = copy_shape(bg_chars, self.color)
-            for y in range(len(bg_chars) - 2):
-                for x in range(len(bg_chars[0]) - 2):
-                    bg_chars[y + 1][x + 1] = '\u2588'
-                    bg_colors[y + 1][x + 1] = 'transparent'
-            super().__init__(bg_chars, bg_colors, **kwargs)
-        else:
-            if background.width < self.w or background.height < self.h:
-                raise BearLayoutException('Background for MenuWidget is too small')
-            # Creating tmp BG widget instead of just taking BG chars and colors
-            # because the background could be some complex widget, eg animation
-            bg_chars = [[' ' for x in range(background.width)]
-                        for y in range(background.height)]
-            bg_colors = copy_shape(bg_chars, 'transparent')
-            super().__init__(bg_chars, bg_colors)
-            self.background = background
+        # if not background:
+        menu_array = generate_square((self.w, self.h), 'double')
+        menu_array['color'] = self.color
+        menu_array[1:-2, 1:-2]['char'] = '█'
+        menu_array[1:-2, 1:-2]['color'] = 'transparent'
+        super().__init__(tile_array=menu_array, **kwargs)
+        # TODO Support for menu background disabled while converting to numpy
+        # else:
+        #     if background.width < self.w or background.height < self.h:
+        #         raise BearLayoutException('Background for MenuWidget is too small')
+        #     # Creating tmp BG widget instead of just taking BG chars and colors
+        #     # because the background could be some complex widget, eg animation
+        #     bg_chars = [[' ' for x in range(background.width)]
+        #                 for y in range(background.height)]
+        #     bg_colors = copy_shape(bg_chars, 'transparent')
+        #     super().__init__(bg_chars, bg_colors)
+        #     self.background = background
         # Adding header, if any
         if header:
             if not isinstance(header, str):
@@ -1397,7 +1362,7 @@ class MenuWidget(Layout):
             if len(header) > self.width - 2:
                 raise BearLayoutException(f'MenuWidget header is too long')
             header_label = Label(header, color=self.color)
-            x = round((self.width - header_label.width) / 2)
+            x = (self.width - header_label.width) // 2
             self.add_child(header_label, (x, 0))
         # Adding buttons
         current_height = items_pos[1]
