@@ -148,7 +148,7 @@ def blit(l1, l2, x, y):
     return r
 
 
-def generate_square(size, line_width='single'):
+def generate_square(size, line_width='single', color='white'):
     """
     Generate a 2D numpy array for a box bounded by pseudographic lines.
 
@@ -157,16 +157,17 @@ def generate_square(size, line_width='single'):
     for the translation table)
 
     :param size: an (xsize, ysize) tuple
-
     :param line_width: str. Either 'single' or 'double'
+    :param color: menu frame color
 
     :return: a nested list of chars.
     """
-    x, y = size
+    y, x = size
     if x < 2 or y < 2:
         raise BearException('Square size should be at least 2 by 2 chars')
-    square = np.full(shape=size, fill_value=render_dt, dtype=render_dt)
+    square = np.full(shape=size, fill_value=render_dt, dtype=render_dt, order='C')
     square['char'] = ' '
+    square['color'] = color
     if line_width == 'single':
         square[0, 0]['char'] = '┌'
         square[0, -1]['char'] = '┐'

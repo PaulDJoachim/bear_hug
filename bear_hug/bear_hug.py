@@ -17,6 +17,7 @@ import time
 from copy import copy
 from collections import namedtuple
 from profilehooks import profile
+import numpy as np
 
 WidgetLocation = namedtuple('WidgetLocation', ('pos', 'layer'))
 
@@ -311,9 +312,9 @@ class BearTerminal:
             terminal.clear_area(*corner, widget.width * widget.font.space_x, widget.height * widget.font.space_y)
         else:
             terminal.clear_area(*corner, widget.width, widget.height)
-        print(f'x={len(widget.chars[0])} y = {len(widget.chars)}')
-        for y in range(len(widget.chars)):
-            for x in range(len(widget.chars[0])):
+        print(f'x={widget.width} y = {widget.height}')
+        for y in range(widget.height):
+            for x in range(widget.width):
                 self._widget_pointers[self.widget_locations[widget].layer] \
                     [corner[0] + x][corner[1] + y] = None
         if refresh:
@@ -341,29 +342,31 @@ class BearTerminal:
     # @profile(immediate=True)
     def string_compiler(self, widget):
         """
-        Turns the lists of colors and characters into a string for each line of the terminal
+        Converts a widget tile_array into a single string for rendering by the terminal.
         """
-        # TODO try using numpy tobytes here
-        string_dict = {}
-        running_color = self.default_color
-        print('widget height', widget.height)
-        for y in range(widget.height):
-            string_dict[y] = f'[color={widget.colors[y][0]}]'
-            if widget.font:
-                string_dict[y] += f'[font={widget.font.name}]'
-            for x in range(widget.width):  # for the row
-                if widget.colors[y][x] and widget.colors[y][x] != running_color:  # if the color has changed
-                    running_color = widget.colors[y][x]  # change the running color
-                    string_dict[y] += f'[color={widget.colors[y][x]}]'  # and add arg to string
-                char = widget.chars[y][x]
-                string_dict[y] += char  # add the character to the string dict
-        return string_dict
+
+        # TODO support multiple fonts in a single widget?
+        chars = widget.tile_array['char'].astype(str).tolist()  # convert character array to list
+        colors = widget.tile_array['color']
+        font = f'[font={widget.font.name}]' if widget.font else ''  # font to begin string with
+        starting_color = f'[color={colors[0, 0]}]'  # color to begin string with
+        prefix = font + starting_color
+
+        comp = colors != np.roll(colors, 1)  # compare color to neighbor, output binary array highlighting color changes
+        color_index = np.transpose(np.nonzero(comp)).tolist()  # create list of indices where color changes
+        for index in reversed(color_index):  # insert color tags into character list as needed
+            x, y = index
+            chars[x].insert(y, f'[color={colors[x,y]}]')
+        lines = [''.join(character) for character in chars]  # join characters into lines
+        string = prefix + ['\n'.join(lines)][0]  # join lines into a single string with newline separators
+
+        return string
 
     def update_widget(self, widget, refresh=False):
         """
         Actually draw widget strings on screen after compilation by string_compiler.
 
-        If ``widget.chars`` or ``widget.colors`` have changed, this method will
+        If widget.tile_array has changed, this method will
         make these changes visible. It is also called by ``self.add_widget()``
         and other methods that have a ``refresh`` argument.
 
@@ -374,17 +377,13 @@ class BearTerminal:
         pos = self.widget_locations[widget].pos
         layer = self.widget_locations[widget].layer
         terminal.layer(layer)
-        line_step = 1
 
-        if widget.font:
-            line_step = widget.font.space_y
+        # TODO determine if clear_area is needed
+        # terminal.clear_area(*pos, widget.width * line_step, widget.height * line_step)
 
-        terminal.clear_area(*pos, widget.width * line_step, widget.height * line_step)
+        string = self.string_compiler(widget)
+        terminal.printf(pos[0], pos[1], string)
 
-        string_dict = self.string_compiler(widget)
-        for y in range(0, widget.height):
-            terminal.printf(pos[0], pos[1] + y * line_step, string_dict[y])
-            self._widget_pointers[layer][pos[0]][pos[1] + y] = widget
         if refresh:
             self.refresh()
 

@@ -7,6 +7,7 @@ entities are recommended.
 
 
 import inspect
+import pprint
 
 from bear_hug.bear_hug import BearTerminal
 from bear_hug.bear_utilities import shapes_equal, blit, copy_shape,\
@@ -171,7 +172,7 @@ class Widget:
     :param z_level: a Z-level to determine objects' overlap. Used by (Scrollable)ECSLayout. Not to be mixed up with a terminal layer, these are two independent systems.
     :param font: simple font object, provided by widget. Characters will be drawn in this font instead of default (terminal must be configured with font_of same name).
     """
-    def __init__(self, tile_array, chars=None, colors=None, z_level=0, font=None):
+    def __init__(self, tile_array, z_level=0, font=None):
         # if not isinstance(chars, list) or not isinstance(colors, list):
         #     raise BearException('Chars and colors should be lists')
 
@@ -181,7 +182,7 @@ class Widget:
         self.hidden = False  # skips this widget's tile data when rendering
         self._terminal = None  # A widget may want to know about the terminal it's attached to
         self._parent = None  # Or a parent
-        
+
     def on_event(self, event):
         # Root widget does not raise anything here, because Widget() can be
         # erroneously subscribed to a queue. While useless, that's not really a
@@ -212,44 +213,19 @@ class Widget:
         
     @property
     def height(self):
-        return len(self.chars)
+        return self.tile_array.shape[0]
     
     @property
     def width(self):
-        return len(self.chars[0])
+        return self.tile_array.shape[1]
     
     @property
     def size(self):
-        return len(self.chars[0]), len(self.chars)
-        
-    def flip(self, axis):
-        """
-        Flip a widget along one of the axes.
-        
-        Note that this method has **extremely** limited uses: first, it only
-        affects chars and colors *as they are now*. If later the widget gets
-        updated via animation, updating label text, Layout's children being
-        redrawn, etc., it will be un-flipped again.
-
-        Second, most ASCII-art just doesn't take it well. Unlike raster and
-        vector graphics, there is no general way to flip an ASCII image
-        programmatically (except, of course, flipping chars themselves which I
-        find aesthetically unacceptable for my projects). It may work for random
-        noisy tiles, like littered floors, grass and such, but for complex
-        images it's better to provide both left and right versions.
-        
-        :param axis: An axis along which to flip. Either one of {'x', 'horizontal'} or one of {'y', 'vertical'}
-        :return:
-        """
-        if axis in ('x', 'horizontal'):
-            self.chars = [self.chars[x][::-1] for x in range(len(self.chars))]
-            self.colors = [self.colors[x][::-1] for x in range(len(self.colors))]
-        elif axis in ('y', 'vertical'):
-            self.chars = self.chars[::-1]
-            self.colors = self.colors[::-1]
+        return self.tile_array.shape[0], self.tile_array.shape[1]
 
     @staticmethod
     def _serialize_charline(charline):
+        # TODO consider serialization
         line = ''
         for char in charline:
             if isinstance(char, str):
@@ -369,7 +345,6 @@ class Layout(Widget):
     def __init__(self, tile_array=None, **kwargs):
         super().__init__(tile_array, **kwargs)
         self.children = []  # list of child widget objects (tile arrays)
-        print('Warning: layout children have been reset. If you see this message twice you\'re probably doing it wrong')
 
         # For every position in the tile_array, remember all the child widgets that may want to place
         # characters in it by recording them in an identically shaped boolean array.
@@ -378,9 +353,7 @@ class Layout(Widget):
 
         # create a 3d array of bools to hold the layout children position data
         sy, sx = self.tile_array.shape
-        # TODO figure out if we still want/need child pointers
-        self._child_pointers = np.zeros(shape=(sy, sx, 1), dtype=bool)
-        self.child_locations = {}  # stores child widgets as keys paired with their position tuples
+        self.child_locations = {}  # stores child widgets as keys paired with their location tuple in the layout
 
         # The widget with Layout's chars and colors is created and added to the
         # Layout as the first child. It is done even if both are empty, just in
@@ -428,6 +401,7 @@ class Layout(Widget):
         if layout_y < child_y or layout_x < child_x:
             raise BearLayoutException('Cannot add child that is bigger than a Layout')
         if child_y + pos_y > layout_y or child_x + pos_x > layout_x:
+            print(child_y,pos_y,layout_y,child_x, pos_x, layout_x)
             raise BearLayoutException('Child won\'t fit at this position')
         if child is self:
             raise BearLayoutException('Cannot add Layout as its own child')
@@ -436,12 +410,6 @@ class Layout(Widget):
         self.child_locations[child] = pos  # add the child's position to the dictionary of positions
         child.terminal = self.terminal
         child.parent = self
-
-        child_index = len(self.children) - 1
-        if child_index > 0:  # if this is not first child, add a new mask layer on the z axis of _child_pointers
-            self._child_pointers = np.concatenate(self._child_pointers, np.zeros(shape=self.tile_array.shape, dtype=bool), axis=2,)
-        # set bool mask to true at corresponding slice locations
-        self._child_pointers[pos_y:child_y, pos_x:child_x, child_index] = True
 
         self.needs_redraw = True
 
@@ -454,29 +422,23 @@ class Layout(Widget):
         if child not in self.children:
             raise BearLayoutException('Layout can only remove its own child')
 
-        child_index = self.children.index(child)
-        self._child_pointers = np.delete(self._child_pointers,child_index,2)
         del(self.child_locations[child])
         self.children.remove(child)
         child.terminal = None
         child.parent = None
+
         self.needs_redraw = True
     
     def move_child(self, child, new_pos):
         """
-        Move the child by altering its pointer mask.
+        Move the child in the layout by altering its location.
 
         :param child: A child Widget
-        :param new_pos: An (x, y) 2-tuple within the layout.
+        :param new_pos: A (y, x) 2-tuple within the layout.
         """
-        child_y, child_x = child.tile_array.shape
-        pos_y, pos_x = new_pos
-        child_index = self.children.index(child)
-
         # TODO add a check to make sure new position is in range
-        self._child_pointers[:, :, child_index] = False  # wipe the child's pointer mask
-        self._child_pointers[pos_y:child_y, pos_x:child_x, child_index] = True  # remask at new position
         self.child_locations[child] = new_pos
+
         self.needs_redraw = True
     
     # BG's chars and colors are not meant to be set directly
@@ -502,21 +464,18 @@ class Layout(Widget):
         
     def _rebuild_self(self):
         """
-        Rebuild the layout's tile_array by reverse iterating on its children and masking any changes
+        Rebuild the layout's tile_array by iteratively adding and masking each child's tiles in order of newest first
         """
-        self.tile_array = np.ma.masked_array(data=self.tile_array, mask=False)  # reset any previous mask
-
-        for child in reversed(self.children):
-            if not np.all(self.tile_array.mask) and not child.hidden:  # if not every tile masked and not a hidden child
+        print('shape of parent tile_array being rebuilt:', self.tile_array.shape)
+        for child in self.children:
+            if not child.hidden:  # if not a hidden child
                 child_y, child_x = child.tile_array.shape
+                print('shape of child array being added to parent:', (child_y, child_x))
+                print('location of child:', self.child_locations[child])
                 pos_y, pos_x = self.child_locations[child]
-                # add child's tiles to layout tile_array, indices masked by previous iterations won't be changed
-                self.tile_array[pos_y:child_y, pos_x: child_x] = child.tile_array
-                # mask the affected tiles to prevent lower children from overwriting them
-                self.tile_array.mask[pos_y:child_y, pos_x: child_x] = True
-            else:  # if all tiles are masked the tile_array is complete
-                return
-        raise BearLayoutException('Tile array not fully masked, missing tile data')
+                # add child's tiles to layout tile_array
+                print(f'trying to place child onto slice {pos_y}:{pos_y + child_y}, {pos_x}: {child_x + 1}')
+                self.tile_array[pos_y:pos_y + child_y, pos_x: pos_x + child_x] = child.tile_array
 
     def on_event(self, event):
         """
@@ -618,12 +577,48 @@ class ScrollBar(Widget):
     def __repr__(self):
         raise BearException('ScrollBar does not support __repr__ serialization')
 
+
 class ScrollableWidget(Widget):
     """
-    A widget that can show only a part ot its surface.
-
-    Unlike the ScrollableLayout, it does not support children.
+    A widget that can show only a part ot its tile_array.
     """
+    def __init__(self, tile_array, view_pos=(0, 0), view_size=(10, 10), **kwargs):
+        if not 0 <= view_pos[0] <= tile_array.shape[1] - view_size[0] \
+                or not 0 <= view_pos[1] <= tile_array.shape[0] - view_size[1]:
+            raise BearLayoutException('Initial viewpoint outside ScrollableLayout')
+        else:
+            if not 0 < view_size[0] <= tile_array.shape[0] \
+                    or not 0 < view_size[1] <= tile_array.shape[1]:
+                raise BearLayoutException('Invalid view field size')
+
+        self.view_pos = view_pos
+        self.view_size = view_size  # the size of the viewing area
+        self._tile_array = tile_array  # the full tile array for the widget
+        # get the viewable slice from the full array
+        self.tile_array_view = self._tile_array[self.view_pos[0]:self.view_pos[0] + self.view_size[0],
+                                               self.view_pos[1]:self.view_pos[1] + self.view_size[1]]
+
+        super().__init__(tile_array=self.tile_array_view, **kwargs)
+        self.needs_redraw = True
+
+    def regenerate_view(self):
+        # use the view pos and size to slice the appropriate view from the array
+        self.tile_array = self._tile_array[self.view_pos[0]:self.view_pos[0] + self.view_size[0],
+                                           self.view_pos[1]:self.view_pos[1] + self.view_size[1]]
+
+
+        # self.needs_redraw = True
+
+    # def on_event(self, event):
+    #     """
+    #     Redraw itself, if necessary
+    #     """
+    #     if event.event_type == 'service' and event.event_value == 'tick_over' \
+    #             and self.needs_redraw:
+    #         self._rebuild_self()
+    #         if isinstance(self.parent, BearTerminal):
+    #             self.terminal.update_widget(self)
+    #         self.needs_redraw = False
 
 
 class ScrollableLayout(Layout):
@@ -651,6 +646,7 @@ class ScrollableLayout(Layout):
 
         self.view_pos = view_pos[:]
         self.view_size = view_size[:]
+
         self._rebuild_self()
 
     def _rebuild_self(self):
@@ -1081,110 +1077,79 @@ class Label(Widget):
     to fit into the Label, ValueError is raised.
 
     :param text: string to be displayed
-
     :param just: horizontal text justification, one of 'left', 'right'
     or 'center'. Default 'left'.
-
     :param color: bearlibterminal-compatible color. Default 'white'
-
     :param width: text area width. Defaults to the length of the longest ``\n``-delimited substring in ``text``.
-
     :param height: text area height. Defaults to the line count in `text`
     """
     
-    def __init__(self, text, chars=None, colors=None,
-                 just='left', color='white', width=None, height=None, **kwargs):
-        # TODO: add input delay to Label
-        # If chars and colors are not provided, generate them. If they are,
-        # typically from JSON dump, no checks are performed. Thus, in theory
-        # it's possible to break this by providing overly big text and changing
-        # adjustment.
-        if not chars:
-            chars = Label._generate_chars(text, width, height, just)
-        if not colors:
-            colors = copy_shape(chars, color)
-        super().__init__(chars, colors, **kwargs)
+    def __init__(self, text, just='left', color='white', text_width=None, **kwargs):
+
+        self.tile_array = None
+        self.text_width = text_width
         self.color = color
-        # Bypassing setter, because I need to actually create fields
-        self._just = just
-        self._text = text
-    
-    @staticmethod
-    def _generate_chars(text, width, height, just):
-        """
-        Internal method that generates a justified char list for the Label
-        :param text:
-        :param just:
-        :return:
-        """
-        
-        def justify(line, width, just_type):
-            if len(line) < width:
-                if just_type == 'left':
-                    return line.ljust(width)
-                elif just_type == 'right':
-                    return line.rjust(width)
-                elif just_type == 'center':
-                    lj = width - int((width - len(line)) / 2)
-                    return line.ljust(lj).rjust(width)
-                else:
-                    raise BearException(
-                        'Justification should be \'left\', \'right\' or \'center\'')
-            else:
-                return line
-        
-        lines = text.split('\n')
-        if not width:
-            width = max(len(x) for x in lines)
-        r = [list(justify(x, width, just)) for x in lines]
-        if height and len(r) < height:
-            for x in range(height - len(r)):
-                r.append([' ' for j in range(len(r[0]))])
-        return r
+        self.just = just
+        self.text = text
+
+        super().__init__(self.tile_array, **kwargs)
 
     @property
     def text(self):
-        return self._text
+        return self.text
 
     @text.setter
-    def text(self, value):
-        # Checking that text will fit in a label
-        l = value.split('\n')
-        if self.chars and (len(l) > len(self.chars) or
-                           any(len(x) > len(self.chars[0])
-                               for x in l)):
-            raise ValueError('Text doesn\'t fit in a Label')
-        if not self._text:
-            self._text = value
-        chars = copy_shape(self.chars, ' ')
-        self.chars = blit(chars, self._generate_chars(value,
-                                                      len(self.chars[0]),
-                                                      len(self.chars),
-                                                      self.just),
-                          0, 0)
-        self._text = value
+    def text(self, text):
+
+        lines = text.split('\n')  # split any line breaks
+        line_count = len(lines)
+        if not self.text_width:
+            self.text_width = max(len(x) for x in lines)
+        lines = [line.split(' ') for line in lines]  # split every word
+
+        # recalculate the word/line groupings based on available space
+        new_lines = []
+        for line in lines:
+            new_line = ''  # start with empty string
+            for word in line:  # add each word while checking if we exceed width
+                if len(new_line) > 0:  # if there's already text on this line
+                    test_line = new_line + f' {word}'  # add a space before the next word
+                else:
+                    test_line = new_line + word  # otherwise just add the word
+                if len(test_line) <= self.text_width:  # if we're still under allowed length
+                    new_line = test_line  # the new line will include the word
+                else:
+                    new_lines.append(new_line)  # otherwise our line is done
+                    new_line = word  # and the unused word begins the next line
+            new_lines.append(new_line)
+
+        # create a new array of appropriate size for the width and line count
+        tile_array = np.full(shape=(line_count, self.text_width), dtype=render_dt, fill_value=render_dt)
+        tile_array['color'] = self.color
+
+        for index in range(len(new_lines)):
+            line = new_lines[index]
+            if self.just == 'left':
+                tile_array['char'][index, ::] = np.fromiter(line.ljust(self.text_width), dtype='U1')
+            elif self.just == 'right':
+                tile_array['char'][index, ::] = np.fromiter(line.rjust(self.text_width), dtype='U1')
+            elif self.just == 'center':
+                tile_array['char'][index, ::] = np.fromiter(line.center(self.text_width), dtype='U1')
+            else:
+                raise BearException("Justification should be 'left', 'right' or 'center'")
+
+        self.tile_array = tile_array
         # MousePosWidgets (a child of Label) may have self.terminal set
         # despite not being connected to the terminal directly
-        if self.terminal and self in self.terminal._widget_pointers:
-            self.terminal.update_widget(self)
+        # if self.terminal and self in self.terminal._widget_pointers:
+        #     self.terminal.update_widget(self)
 
-    @property
-    def just(self):
-        return self._just
-    
-    @just.setter
-    def just(self, value):
-        self.chars = Label._generate_chars(self.text, len(self.chars[0]),
-                                           len(self.chars), just=value)
-        if self.terminal:
-            self.terminal.update_widget(self)
-            
-    def __repr__(self):
-        d = loads(super().__repr__())
-        d['text'] = self.text
-        d['just'] = self.just
-        d['color'] = self.color
-        return dumps(d)
+    # def __repr__(self):
+    #     d = loads(super().__repr__())
+    #     d['text'] = self.text
+    #     d['just'] = self.just
+    #     d['color'] = self.color
+    #     return dumps(d)
             
             
 class InputField(Label):
@@ -1306,93 +1271,66 @@ class MenuWidget(Layout):
     A menu widget that includes multiple buttons.
 
     :param dispatcher: BearEventDispatcher instance to which the menu will subscribe
-
     :param items: an iterable of MenuItems
-
     :param background: A background widget for the menu. If not supplied, a default double-thickness box is used. If background widget needs to get events (ie for animation), it should be subscribed by the time it's passed here.
-
     :param color: A bearlibterminal-compatible color. Used for a menu frame and header text
-
     :param items_pos: A 2-tuple of ints. A position of top-left corner of the 1st MenuItem
-
     :param header: str or None. A menu header. This should not be longer than menu width, otherwise an exception is thrown. Header may look ugly with custom backgrounds, since it's only intended for non-custom menus.
-
     :param switch_sound: str. A sound which should be played (via ``play_sound`` BearEvent) when a button is highlighted.
-
     :param activation_sound: str. A sound which should be played (vai ``play_sound`` BearEvent) when a button is pressed
     """
     def __init__(self, dispatcher, terminal=None, items=[], header=None,
-                 color=Color.WHITE, items_pos=(2, 2),
-                 background=None,
+                 color=Color.WHITE,
+                 items_pos=(2, 2),
                  switch_sound=None,
                  activation_sound=None,
                  **kwargs):
         self.items = []
         self.dispatcher = dispatcher
-        # Separate from self.height and self.width to avoid overwriting attrs
-        self.h = 3
-        self.w = 4
         self.color = color
-        for item in items:  # add all the menu buttons
-            self._add_item(item)
-        if terminal and not isinstance(terminal, BearTerminal):
-            raise TypeError(f'{type(terminal)} used as a terminal for MenuWidget instead of BearTerminal')
-        # Set background, if supplied
-        # if not background:
-        menu_array = generate_square((self.w, self.h), 'double')
+        self.items_pos = items_pos
+        height = len(items) * 3 + 4
+        width = max([item.tile_array.shape[1] for item in items]) + 4
+        menu_array = generate_square((height, width), 'double')
         menu_array['color'] = self.color
-        menu_array[1:-2, 1:-2]['char'] = '█'
-        menu_array[1:-2, 1:-2]['color'] = 'transparent'
+        menu_array[1:-1, 1:-1]['char'] = '█'
+        menu_array[1:-1, 1:-1]['color'] = 'transparent'
+
         super().__init__(tile_array=menu_array, **kwargs)
-        # TODO Support for menu background disabled while converting to numpy
-        # else:
-        #     if background.width < self.w or background.height < self.h:
-        #         raise BearLayoutException('Background for MenuWidget is too small')
-        #     # Creating tmp BG widget instead of just taking BG chars and colors
-        #     # because the background could be some complex widget, eg animation
-        #     bg_chars = [[' ' for x in range(background.width)]
-        #                 for y in range(background.height)]
-        #     bg_colors = copy_shape(bg_chars, 'transparent')
-        #     super().__init__(bg_chars, bg_colors)
-        #     self.background = background
+
+        # if terminal and not isinstance(terminal, BearTerminal):
+        #     raise TypeError(f'{type(terminal)} used as a terminal for MenuWidget instead of BearTerminal')
+        # self.terminal = terminal
+
+        for item in items:  # add all the menu buttons
+            self.add_child(item, items_pos)
+            items_pos = (items_pos[0] + 3, items_pos[1])
+
+        # Adding buttons
+        current_height = items_pos[0]
+        for item in self.items:
+            print('adding menu item ')
+            self.add_child(item, (current_height, items_pos[1]))
+            current_height += item.height + 1
+
         # Adding header, if any
         if header:
             if not isinstance(header, str):
                 raise TypeError(f'{type(header)} used instead of string for MenuWidget header')
-            if len(header) > self.width - 2:
+            if len(header) > menu_array.shape[1] - 2:
                 raise BearLayoutException(f'MenuWidget header is too long')
             header_label = Label(header, color=self.color)
-            x = (self.width - header_label.width) // 2
-            self.add_child(header_label, (x, 0))
-        # Adding buttons
-        current_height = items_pos[1]
-        for item in self.items:
-            self.add_child(item, (items_pos[0], current_height))
-            current_height += item.height + 1
+            x = (menu_array.shape[1] - header_label.width) // 2
+            self.add_child(header_label, (0, x))
+
         # Prevent scrolling multiple times when key is pressed
         self.input_delay = 0.2
         self.current_delay = self.input_delay
-        self._current_highlight = 0
+        self._current_highlight = 1
         # Storing sounds
         self.switch_sound = switch_sound
         self.activation_sound = activation_sound
-        self.items[self.current_highlight].highlight()
-
-    def _add_item(self, item):
-        """
-        Add an item to the menu.
-
-        This method may only be called from ``__init__``; there is no support
-        for changing menu contents on the fly
-
-        :param item: MenuItem instance
-        """
-        if not isinstance(item, MenuItem):
-            raise TypeError(f'{type(item)} used instead of MenuItem for MenuWidget')
-        self.items.append(item)
-        self.h += item.height + 1
-        if item.width > self.w - 4:
-            self.w = item.width + 4
+        self.children[self.current_highlight].highlight()
 
     @property
     def current_highlight(self):
@@ -1400,11 +1338,11 @@ class MenuWidget(Layout):
 
     @current_highlight.setter
     def current_highlight(self, value):
-        if not 0 <= value <= len(self.items) - 1:
+        if not 1 <= value <= len(self.children) - 1:
             raise ValueError('current_highlight can only be set to a valid item index')
-        self.items[self._current_highlight].unhighlight()
+        self.children[self._current_highlight].unhighlight()
         self._current_highlight = value
-        self.items[self._current_highlight].highlight()
+        self.children[self._current_highlight].highlight()
         self.needs_redraw = True
 
     def on_event(self, event):
@@ -1415,15 +1353,17 @@ class MenuWidget(Layout):
             self.current_delay += event.event_value
         elif event.event_type == 'key_down' and self.current_delay >= self.input_delay:
             self.current_delay = 0
+            print('I HEAR PRESS key:', event.event_value)
             if event.event_value in ('TK_SPACE', 'TK_ENTER'):
+                print('I HEAR U')
                 have_activated = True
-                r = self.items[self.current_highlight].activate()
+                r = self.children[self.current_highlight].activate()
             elif event.event_value in ('TK_UP', 'TK_W') \
-                    and self.current_highlight > 0:
+                    and self.current_highlight > 1:
                 have_switched = True
                 self.current_highlight -= 1
             elif event.event_value in ('TK_DOWN', 'TK_S') \
-                    and self.current_highlight < len(self.items) - 1:
+                    and self.current_highlight < len(self.children) - 2:
                 have_switched = True
                 self.current_highlight += 1
             elif event.event_value == 'TK_MOUSE_LEFT':
@@ -1437,7 +1377,7 @@ class MenuWidget(Layout):
                         # self.current_highlight = self.items.index(b)
                         if isinstance(b, MenuItem):
                             have_activated = True
-                            r = self.items[self.current_highlight].activate()
+                            r = self.children[self.current_highlight].activate()
         elif event.event_type == 'misc_input' and event.event_value == 'TK_MOUSE_MOVE':
             if self.terminal:
                 # Silently ignore mouse input if terminal is not set
@@ -1449,7 +1389,7 @@ class MenuWidget(Layout):
                     # Could be the menu header
                     if isinstance(b, MenuItem):
                         have_switched = True
-                        self.current_highlight = self.items.index(b)
+                        self.current_highlight = self.children.index(b)
         # Whatever type r was, convert it into a (possibly empty) list of BearEvents
         ret = []
         if r:
@@ -1463,7 +1403,7 @@ class MenuWidget(Layout):
                         raise TypeError(f'MenuItem action returned {type(e)} instead of a BearEvent')
         else:
             ret = []
-        for item in self.items:
+        for item in self.children:
             # Pass all events to items. Necessary for correct redrawing (ie
             # setting need_redraw on MenuItem instances after (de)highlighting),
             # could be useful otherwise.
@@ -1488,7 +1428,7 @@ class MenuWidget(Layout):
         return ret
 
 
-class MenuItem(Layout):
+class MenuItem(Widget):
     """
     A button for use inside menus. Includes a label surrounded by a single-width
     box. Contains a single callable, ``self.action``, which will be called when
@@ -1515,12 +1455,11 @@ class MenuItem(Layout):
         self.highlight_color = highlight_color
         # Widget generation
         label = Label(text, color=self.color)
-        bg_chars = generate_box((label.width+2, label.height+2),
-                                'single')
-        bg_colors = copy_shape(bg_chars, self.color)
-        super().__init__(bg_chars, bg_colors)
-        self.add_child(label, (1, 1))
-        self._rebuild_self()
+        # print(label.tile_array)
+        self.tile_array = generate_square((label.height+2, label.width+2), 'single', color)
+        self.tile_array[1, 1:label.width + 1] = label.tile_array
+        super().__init__(self.tile_array)
+
         if not hasattr(action, '__call__'):
             raise BearException('Action for a button should be callable')
         self.action = action
@@ -1529,8 +1468,7 @@ class MenuItem(Layout):
         """
         Change button colors to show that it's highlighted
         """
-        self.background.colors = copy_shape(self.background.colors,
-                                            self.highlight_color)
+        self.tile_array['color'] = self.highlight_color
         self.needs_redraw = True
 
     def unhighlight(self):
@@ -1538,8 +1476,7 @@ class MenuItem(Layout):
         Change button colors to show that it's no longer highlighted
         :return:
         """
-        self.background.colors = copy_shape(self.background.colors,
-                                            self.color)
+        self.tile_array['color'] = self.color
         self.needs_redraw = True
 
     def activate(self):
