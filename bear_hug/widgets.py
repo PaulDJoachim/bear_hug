@@ -401,7 +401,6 @@ class Layout(Widget):
         if layout_y < child_y or layout_x < child_x:
             raise BearLayoutException('Cannot add child that is bigger than a Layout')
         if child_y + pos_y > layout_y or child_x + pos_x > layout_x:
-            print(child_y,pos_y,layout_y,child_x, pos_x, layout_x)
             raise BearLayoutException('Child won\'t fit at this position')
         if child is self:
             raise BearLayoutException('Cannot add Layout as its own child')
@@ -470,11 +469,8 @@ class Layout(Widget):
         for child in self.children:
             if not child.hidden:  # if not a hidden child
                 child_y, child_x = child.tile_array.shape
-                print('shape of child array being added to parent:', (child_y, child_x))
-                print('location of child:', self.child_locations[child])
                 pos_y, pos_x = self.child_locations[child]
                 # add child's tiles to layout tile_array
-                print(f'trying to place child onto slice {pos_y}:{pos_y + child_y}, {pos_x}: {child_x + 1}')
                 self.tile_array[pos_y:pos_y + child_y, pos_x: pos_x + child_x] = child.tile_array
 
     def on_event(self, event):
@@ -583,8 +579,8 @@ class ScrollableWidget(Widget):
     A widget that can show only a part ot its tile_array.
     """
     def __init__(self, tile_array, view_pos=(0, 0), view_size=(10, 10), **kwargs):
-        if not 0 <= view_pos[0] <= tile_array.shape[1] - view_size[0] \
-                or not 0 <= view_pos[1] <= tile_array.shape[0] - view_size[1]:
+        if not 0 <= view_pos[0] <= tile_array.shape[0] - view_size[0] \
+                or not 0 <= view_pos[1] <= tile_array.shape[1] - view_size[1]:
             raise BearLayoutException('Initial viewpoint outside ScrollableLayout')
         else:
             if not 0 < view_size[0] <= tile_array.shape[0] \
@@ -596,29 +592,14 @@ class ScrollableWidget(Widget):
         self._tile_array = tile_array  # the full tile array for the widget
         # get the viewable slice from the full array
         self.tile_array_view = self._tile_array[self.view_pos[0]:self.view_pos[0] + self.view_size[0],
-                                               self.view_pos[1]:self.view_pos[1] + self.view_size[1]]
+                                                self.view_pos[1]:self.view_pos[1] + self.view_size[1]]
 
         super().__init__(tile_array=self.tile_array_view, **kwargs)
-        self.needs_redraw = True
 
     def regenerate_view(self):
         # use the view pos and size to slice the appropriate view from the array
         self.tile_array = self._tile_array[self.view_pos[0]:self.view_pos[0] + self.view_size[0],
                                            self.view_pos[1]:self.view_pos[1] + self.view_size[1]]
-
-
-        # self.needs_redraw = True
-
-    # def on_event(self, event):
-    #     """
-    #     Redraw itself, if necessary
-    #     """
-    #     if event.event_type == 'service' and event.event_value == 'tick_over' \
-    #             and self.needs_redraw:
-    #         self._rebuild_self()
-    #         if isinstance(self.parent, BearTerminal):
-    #             self.terminal.update_widget(self)
-    #         self.needs_redraw = False
 
 
 class ScrollableLayout(Layout):
@@ -1309,7 +1290,6 @@ class MenuWidget(Layout):
         # Adding buttons
         current_height = items_pos[0]
         for item in self.items:
-            print('adding menu item ')
             self.add_child(item, (current_height, items_pos[1]))
             current_height += item.height + 1
 
@@ -1353,9 +1333,8 @@ class MenuWidget(Layout):
             self.current_delay += event.event_value
         elif event.event_type == 'key_down' and self.current_delay >= self.input_delay:
             self.current_delay = 0
-            print('I HEAR PRESS key:', event.event_value)
+            print('PRESSED:', event.event_value)
             if event.event_value in ('TK_SPACE', 'TK_ENTER'):
-                print('I HEAR U')
                 have_activated = True
                 r = self.children[self.current_highlight].activate()
             elif event.event_value in ('TK_UP', 'TK_W') \

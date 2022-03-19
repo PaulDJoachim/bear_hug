@@ -354,8 +354,7 @@ class BearTerminal:
 
         comp = colors != np.roll(colors, 1)  # compare color to neighbor, output binary array highlighting color changes
         color_index = np.transpose(np.nonzero(comp)).tolist()  # create list of indices where color changes
-        for index in reversed(color_index):  # insert color tags into character list as needed
-            x, y = index
+        for x, y in reversed(color_index):  # insert color tags into character list as needed
             chars[x].insert(y, f'[color={colors[x,y]}]')
         lines = [''.join(character) for character in chars]  # join characters into lines
         string = prefix + ['\n'.join(lines)][0]  # join lines into a single string with newline separators
@@ -378,8 +377,8 @@ class BearTerminal:
         layer = self.widget_locations[widget].layer
         terminal.layer(layer)
 
-        # TODO determine if clear_area is needed
-        # terminal.clear_area(*pos, widget.width * line_step, widget.height * line_step)
+        # TODO only clear when actually needed (zoom)
+        terminal.clear_area(*pos, widget.width * widget.font.space_x, widget.height * widget.font.space_y)
 
         string = self.string_compiler(widget)
         terminal.printf(pos[0], pos[1], string)
