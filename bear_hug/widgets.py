@@ -167,20 +167,16 @@ class Widget:
     The following keys are forbidden: ``parent`` and ``terminal``. Kwarg
     validity is not controlled except by ``WidgetSubclass.__init__()``.
 
-    :param chars: a 2-nested list of unicode characters
-    :param colors: a 2-nested list of colors. Anything that is accepted by ``terminal.color()`` goes here (a color name or a 0xAARRGGBB/0xRRGGBB/0xRGB/0xARGB integer are fine, (r, g, b) tuples are unreliable).
     :param z_level: a Z-level to determine objects' overlap. Used by (Scrollable)ECSLayout. Not to be mixed up with a terminal layer, these are two independent systems.
     :param font: simple font object, provided by widget. Characters will be drawn in this font instead of default (terminal must be configured with font_of same name).
     """
-    def __init__(self, tile_array, z_level=0, font=None):
-        # if not isinstance(chars, list) or not isinstance(colors, list):
-        #     raise BearException('Chars and colors should be lists')
+    def __init__(self, tile_array, z_level=0, terminal=None, **kwargs):
 
         self.z_level = z_level
         self.tile_array = tile_array
-        self.font = font
+        self.font_size = kwargs.get('font_size')  # a string specifying terminal font to use, terminal uses default font if None
         self.hidden = False  # skips this widget's tile data when rendering
-        self._terminal = None  # A widget may want to know about the terminal it's attached to
+        self._terminal = terminal  # A widget may want to know about the terminal it's attached to
         self._parent = None  # Or a parent
 
     def on_event(self, event):
@@ -192,14 +188,14 @@ class Widget:
     @property
     def terminal(self):
         return self._terminal
-    
+
     @terminal.setter
     def terminal(self, value):
         if value and not isinstance(value, BearTerminal):
             raise BearException('Only a BearTerminal can be set as ' +
                                 'Widget.terminal')
         self._terminal = value
-        
+
     @property
     def parent(self):
         return self._parent
@@ -465,7 +461,6 @@ class Layout(Widget):
         """
         Rebuild the layout's tile_array by iteratively adding and masking each child's tiles in order of newest first
         """
-        print('shape of parent tile_array being rebuilt:', self.tile_array.shape)
         for child in self.children:
             if not child.hidden:  # if not a hidden child
                 child_y, child_x = child.tile_array.shape

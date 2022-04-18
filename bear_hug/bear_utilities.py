@@ -187,8 +187,6 @@ def generate_square(size, line_width='single', color='white'):
         square[-1, 1:-1]['char'] = '═'
         square[1:-1, 0]['char'] = '║'
         square[1:-1, -1]['char'] = '║'
-        import pprint
-        pprint.pprint(square['char'])
 
         return square
     raise BearException('Line width should be either single or double')

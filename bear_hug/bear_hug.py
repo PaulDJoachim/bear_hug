@@ -171,15 +171,15 @@ class BearTerminal:
                  # font_size: str = '12x12',
                  codepage: str = '437',
                  default_font=None,
-                 font2=None,
+                 small_font=None,
+                 big_font=None,
                  **kwargs):
 
         # TODO: make font_path system independent via os.path
         self.font_path, self.font_size, self.codepage \
             = default_font.path, default_font.size, codepage
-        if font2:
-            self.font2_name, self.font2_path, self.font2_size, self.font2_spacing \
-                = font2.name, font2.path, font2.size, font2.spacing
+        self.small_font = small_font
+        self.big_font = big_font
         self.outstring = ''
         self.widget_locations = {}
         self.default_color = 'white'
@@ -208,9 +208,12 @@ class BearTerminal:
         terminal.open()
         terminal.set(
             f'font: {self.font_path}, size={self.font_size}, codepage={self.codepage};')
-        if hasattr(self, 'font2_path'):  # if there's a font2: set it
+        if hasattr(self, 'small_font'):  # if there's a small_font: set it
             terminal.set(
-                f'{self.font2_name} font: {self.font2_path}, size={self.font2_size}, spacing={self.font2_spacing}, codepage={self.codepage};')
+                f'{self.small_font.name} font: {self.small_font.path}, size={self.small_font.size}, spacing={self.small_font.spacing}, codepage={self.codepage};')
+        if hasattr(self, 'big_font'):  # if there's a big_font: set it
+            terminal.set(
+                f'{self.big_font.name} font: {self.big_font.path}, size={self.big_font.size}, spacing={self.big_font.spacing}, codepage={self.codepage};')
         if self.outstring:
             terminal.set(self.outstring)
         self.refresh()
@@ -308,8 +311,9 @@ class BearTerminal:
         """
         corner = self.widget_locations[widget].pos
         terminal.layer(self.widget_locations[widget].layer)
-        if widget.font:  # if the widget uses a font, make sure to account for its spacing when removing
-            terminal.clear_area(*corner, widget.width * widget.font.space_x, widget.height * widget.font.space_y)
+        # if hasattr(widget, 'font_size'):  # if the widget specifies a font size, account for its spacing while removing
+        if widget.font_size == 'big':
+            terminal.clear_area(*corner, widget.width * self.big_font.space_x, widget.height * self.big_font.space_y)
         else:
             terminal.clear_area(*corner, widget.width, widget.height)
         print(f'x={widget.width} y = {widget.height}')
@@ -348,7 +352,13 @@ class BearTerminal:
         # TODO support multiple fonts in a single widget?
         chars = widget.tile_array['char'].astype(str).tolist()  # convert character array to list
         colors = widget.tile_array['color']
-        font = f'[font={widget.font.name}]' if widget.font else ''  # font to begin string with
+        font = ''
+        print(widget.font_size)
+        if hasattr(widget, 'font_size'):  # font to begin string with
+            if widget.font_size == 'big':
+                font = f'[font={self.big_font.name}]'
+            elif widget.font_size == 'small':
+                font = f'[font={self.small_font.name}]'
         starting_color = f'[color={colors[0, 0]}]'  # color to begin string with
         prefix = font + starting_color
 
@@ -378,7 +388,8 @@ class BearTerminal:
         terminal.layer(layer)
 
         # TODO only clear when actually needed (zoom)
-        terminal.clear_area(*pos, widget.width * widget.font.space_x, widget.height * widget.font.space_y)
+        terminal.clear_area(*pos, widget.width, widget.height)
+        # terminal.clear_area(*pos, widget.width * widget.font.space_x, widget.height * widget.font.space_y)
 
         string = self.string_compiler(widget)
         terminal.printf(pos[0], pos[1], string)
