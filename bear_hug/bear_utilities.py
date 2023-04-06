@@ -6,7 +6,8 @@ Includes a series of useful functions and all bear_hug exception classes.
 
 from copy import deepcopy
 import numpy as np
-from tile_types import render_dt
+from tile_types import render_dt, Tile
+
 
 def shapes_equal(a, b):
     """
@@ -148,7 +149,7 @@ def blit(l1, l2, x, y):
     return r
 
 
-def generate_square(size, line_width='single', color='white'):
+def generate_square(size, line_width='single', color=0xFFFFFFFF, bkcolor=0xFF000000):
     """
     Generate a 2D numpy array for a box bounded by pseudographic lines.
 
@@ -165,9 +166,10 @@ def generate_square(size, line_width='single', color='white'):
     y, x = size
     if x < 2 or y < 2:
         raise BearException('Square size should be at least 2 by 2 chars')
-    square = np.full(shape=size, fill_value=render_dt, dtype=render_dt, order='C')
+    square = np.full(shape=size, dtype=render_dt, fill_value=Tile.AIR.value)
     square['char'] = ' '
     square['color'] = color
+    square['bkcolor'] = bkcolor
     if line_width == 'single':
         square[0, 0]['char'] = '┌'
         square[0, -1]['char'] = '┐'

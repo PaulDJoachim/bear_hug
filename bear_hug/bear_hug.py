@@ -181,14 +181,15 @@ class BearTerminal:
         self.small_font = small_font
         self.big_font = big_font
         self.outstring = ''
-        self.widget_locations = {}
-        self.default_color = 'white'
+        self.active_widgets = []
+        # self.widget_locations = {}
+        # self.default_color = 'white'
         self.currently_pressed = set()  # Buttons currently pressed (see check_input docstring)
         #  This will be one list of drawable pointers per layer. Lists are
         #  not actually allocated until at least one Widget is added to layer
         #  Lists are created when adding the first Widget and are never
         #  destroyed or resized.
-        self._widget_pointers = [None for x in range(256)]
+        # self._widget_pointers = [None for x in range(256)]
 
         if kwargs:
             if any(x not in self._accepted_kwargs for x in kwargs.keys()):
@@ -269,7 +270,7 @@ class BearTerminal:
 
     #  Drawing and removing stuff
 
-    def add_widget(self, widget, pos=(0, 0), layer=0, refresh=False):
+    def add_widget(self, widget, refresh=False):
         """
         Add a widget to the terminal and set `widget.terminal` to `self`.
 
@@ -281,22 +282,24 @@ class BearTerminal:
         :param layer: layer to place the widget on
         :param refresh: whether to refresh terminal after adding the widget. If False, the widget will not be actually shown until the next ``terminal.refresh()`` call
         """
-        if widget in self.widget_locations.keys():
-            raise BearException('Cannot add the same widget twice')
-        for y in range(widget.height):
-            for x in range(widget.width):
-                if self._widget_pointers[layer] and \
-                        self._widget_pointers[layer][pos[0] + x][pos[1] + y]:
-                    raise BearException('Widgets cannot collide within a layer')
+        # if widget in self.widget_locations.keys():
+        #     raise BearException('Cannot add the same widget twice')
+        # for y in range(widget.height):
+        #     for x in range(widget.width):
+        #         if self._widget_pointers[layer] and \
+        #                 self._widget_pointers[layer][pos[0] + x][pos[1] + y]:
+        #             raise BearException('Widgets cannot collide within a layer')
         widget.terminal = self
         widget.parent = self
-        self.widget_locations[widget] = WidgetLocation(pos=pos, layer=layer)
-        terminal.layer(layer)
-        if not self._widget_pointers[layer]:
-            size = terminal.get('window.size')
-            width, height = (int(x) for x in size.split('x'))
-            self._widget_pointers[layer] = [[None for y in range(height)]
-                                            for x in range(width)]
+        self.active_widgets.append(widget)
+
+        # self.widget_locations[widget] = WidgetLocation(pos=pos, layer=layer)
+        # terminal.layer(widget.layer)
+        # if not self._widget_pointers[layer]:
+        #     size = terminal.get('window.size')
+        #     width, height = (int(x) for x in size.split('x'))
+        #     self._widget_pointers[layer] = [[None for y in range(height)]
+        #                                     for x in range(width)]
         self.update_widget(widget, refresh)
 
     def remove_widget(self, widget, refresh=False):
@@ -309,67 +312,71 @@ class BearTerminal:
         :param widget: A widget to be removed
         :param refresh: whether to refresh the terminal after removing a widget. If False, the widget will be visible until the next ``terminal.refresh()`` call
         """
-        corner = self.widget_locations[widget].pos
-        terminal.layer(self.widget_locations[widget].layer)
+        corner = widget.pos
+        terminal.layer(widget.layer)
         # if hasattr(widget, 'font_size'):  # if the widget specifies a font size, account for its spacing while removing
         if widget.font_size == 'big':
             terminal.clear_area(*corner, widget.width * self.big_font.space_x, widget.height * self.big_font.space_y)
         else:
             terminal.clear_area(*corner, widget.width, widget.height)
-        print(f'Widget size: x={widget.width} y={widget.height}')
-        for y in range(widget.height):
-            for x in range(widget.width):
-                self._widget_pointers[self.widget_locations[widget].layer] \
-                    [corner[0] + x][corner[1] + y] = None
+        # for y in range(widget.height):
+        #     for x in range(widget.width):
+        #         self._widget_pointers[self.widget_locations[widget].layer] \
+        #             [corner[0] + x][corner[1] + y] = None
         if refresh:
             self.refresh()
-        del (self.widget_locations[widget])
+        self.active_widgets.remove(widget)
+        # del (self.widget_locations[widget])
         widget.terminal = None
         widget.parent = None
 
-    def move_widget(self, widget, pos, refresh=False):
-        """
-        Move widget to a new position.
-
-        Widgets can only be moved within the layer. If it is necessary to move
-        a widget from one layer to another, it should be removed and added anew.
-
-        :param widget: A widget to be moved
-        :param pos: :param refresh: whether to refresh the terminal after removing a widget. If False, the widget won't move on screen until the next ``terminal.refresh()`` call
-        """
-        layer = self.widget_locations[widget].layer
-        self.remove_widget(widget)
-        self.add_widget(widget, pos=pos, layer=layer)
-        if refresh:
-            self.refresh()
+    # def move_widget(self, widget, pos, refresh=False):
+    #     """
+    #     Move widget to a new position.
+    #
+    #     Widgets can only be moved within the layer. If it is necessary to move
+    #     a widget from one layer to another, it should be removed and added anew.
+    #
+    #     :param widget: A widget to be moved
+    #     :param pos: :param refresh: whether to refresh the terminal after removing a widget. If False, the widget won't move on screen until the next ``terminal.refresh()`` call
+    #     """
+    #     layer = widget.layer
+    #     self.remove_widget(widget)
+    #     self.add_widget(widget, pos=pos, layer=layer)
+    #     if refresh:
+    #         self.refresh()
 
     # @profile(immediate=True)
     def string_compiler(self, widget):
         """
         Converts a widget tile_array into a single string for rendering by the terminal.
         """
-
         # TODO support multiple fonts in a single widget?
-        print(type(widget.tile_array['char'].astype(str)))
         chars = widget.tile_array['char'].astype(str).tolist()  # convert character array to list
         colors = widget.tile_array['color']
+        bkcolors = widget.tile_array['bkcolor']
         font = ''
         if hasattr(widget, 'font_size'):  # font to begin string with
             if widget.font_size == 'big':
                 font = f'[font={self.big_font.name}]'
-            elif widget.font_size == 'small':
+            else:
                 font = f'[font={self.small_font.name}]'
-        starting_color = f'[color={colors[0, 0]}]'  # color to begin string with
+        starting_color = f'[color={colors[0, 0]}][bkcolor={bkcolors[0, 0]}]'  # color to begin string with
         prefix = font + starting_color
 
-        comp = colors != np.roll(colors, 1)  # compare color to neighbor, output binary array highlighting color changes
+        comp = (colors != np.roll(colors, 1)) | (bkcolors != np.roll(bkcolors, 1))  # compare color to neighbor, output binary array highlighting color changes
         color_index = np.transpose(np.nonzero(comp)).tolist()  # create list of indices where color changes
         for x, y in reversed(color_index):  # insert color tags into character list as needed
-            chars[x].insert(y, f'[color={colors[x,y]}]')
+            chars[x].insert(y, f'[color={colors[x,y]}][bkcolor={bkcolors[x,y]}]')
         lines = [''.join(character) for character in chars]  # join characters into lines
         string = prefix + ['\n'.join(lines)][0]  # join lines into a single string with newline separators
-
         return string
+
+    def put(self, y, x, char, color=None, font=None):
+        terminal.layer(1)
+        string = f'[font={font}][color={color}]{char}'
+        terminal.printf(x, y, string)
+
 
     def update_widget(self, widget, refresh=False):
         """
@@ -381,10 +388,10 @@ class BearTerminal:
 
         :param widget: A widget to be updated.
         """
-        if widget not in self.widget_locations:
-            raise BearException('Cannot update non-added Widgets')
-        pos = self.widget_locations[widget].pos
-        layer = self.widget_locations[widget].layer
+        # if widget not in self.active_widgets:
+        #     raise BearException('Cannot update non-added Widgets')
+        pos = widget.pos
+        layer = widget.layer
         terminal.layer(layer)
 
         # TODO only clear when actually needed (zoom/transparent tile backgrounds?)
@@ -393,7 +400,6 @@ class BearTerminal:
 
         string = self.string_compiler(widget)
         terminal.printf(pos[0], pos[1], string)
-
         if refresh:
             self.refresh()
 
@@ -429,20 +435,20 @@ class BearTerminal:
 
     #  Getting terminal info
 
-    def get_widget_by_pos(self, pos, layer=None):
-        """
-        Return the widget currently placed at the given position.
-
-        :param pos: Position (a 2-tuple of ints)
-        :param layer: A layer to look at. If this is set to valid layer number, returns the widget (if any) from that layer. If not set, return the widget from highest layer where a given cell is non-empty.
-        """
-        if layer:
-            return self._widget_pointers[layer][pos[0]][pos[1]]
-        else:
-            for layer_list in reversed(self._widget_pointers):
-                if layer_list and layer_list[pos[0]][pos[1]]:
-                    return layer_list[pos[0]][pos[1]]
-            return None
+    # def get_widget_by_pos(self, pos, layer=None):
+    #     """
+    #     Return the widget currently placed at the given position.
+    #
+    #     :param pos: Position (a 2-tuple of ints)
+    #     :param layer: A layer to look at. If this is set to valid layer number, returns the widget (if any) from that layer. If not set, return the widget from highest layer where a given cell is non-empty.
+    #     """
+    #     if layer:
+    #         return self._widget_pointers[layer][pos[0]][pos[1]]
+    #     else:
+    #         for layer_list in reversed(self._widget_pointers):
+    #             if layer_list and layer_list[pos[0]][pos[1]]:
+    #                 return layer_list[pos[0]][pos[1]]
+    #         return None
 
     # Input
     def check_input(self):
@@ -537,7 +543,7 @@ class BearLoop:
     :param fps: a number of times per second this loop should process events.
     """
 
-    def __init__(self, terminal, queue, fps=30, profile=False):
+    def __init__(self, terminal, queue, fps=60, profile=False):
         # Assumes terminal to be running
         self.terminal = terminal
         self.queue = queue
@@ -571,6 +577,8 @@ class BearLoop:
                 # Otherwise, on a laggy system sleep_time may be positive when
                 # the `if` check runs, but negative by the time `sleep` is
                 # called, causing a crash.
+                # TODO instead of pausing everything to wait for 1 frame,
+                #  try queueing a limited amount of them in a buffer
                 time.sleep(self.frame_time - time.time() + self.last_time)
         # When the loop stops, it closes the terminal. Everyone is expected to
         # have caught the shutdown service event
