@@ -316,7 +316,7 @@ class BearTerminal:
             terminal.clear_area(*corner, widget.width * self.big_font.space_x, widget.height * self.big_font.space_y)
         else:
             terminal.clear_area(*corner, widget.width, widget.height)
-        print(f'x={widget.width} y = {widget.height}')
+        print(f'Widget size: x={widget.width} y={widget.height}')
         for y in range(widget.height):
             for x in range(widget.width):
                 self._widget_pointers[self.widget_locations[widget].layer] \
@@ -350,10 +350,10 @@ class BearTerminal:
         """
 
         # TODO support multiple fonts in a single widget?
+        print(type(widget.tile_array['char'].astype(str)))
         chars = widget.tile_array['char'].astype(str).tolist()  # convert character array to list
         colors = widget.tile_array['color']
         font = ''
-        print(widget.font_size)
         if hasattr(widget, 'font_size'):  # font to begin string with
             if widget.font_size == 'big':
                 font = f'[font={self.big_font.name}]'
@@ -387,8 +387,8 @@ class BearTerminal:
         layer = self.widget_locations[widget].layer
         terminal.layer(layer)
 
-        # TODO only clear when actually needed (zoom)
-        terminal.clear_area(*pos, widget.width, widget.height)
+        # TODO only clear when actually needed (zoom/transparent tile backgrounds?)
+        # terminal.clear_area(*pos, widget.width, widget.height)
         # terminal.clear_area(*pos, widget.width * widget.font.space_x, widget.height * widget.font.space_y)
 
         string = self.string_compiler(widget)
@@ -563,7 +563,9 @@ class BearLoop:
             self.last_time = time.time()
             self._run_iteration(t)
             sleep_time = self.frame_time - time.time() + self.last_time
-            if sleep_time > 0.05 * self.frame_time:
+            # TODO Investigate how ticks work here
+            # original threshold was 0.05 - changed due to rare neg sleep() value crashes
+            if sleep_time > 0.06 * self.frame_time:
                 # If frame was finished early, wait for it
                 # But only if there is enough spare time to make it worthwhile.
                 # Otherwise, on a laggy system sleep_time may be positive when

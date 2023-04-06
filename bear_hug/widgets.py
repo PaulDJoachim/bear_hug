@@ -219,6 +219,11 @@ class Widget:
     def size(self):
         return self.tile_array.shape[0], self.tile_array.shape[1]
 
+    def wipe(self):
+        """clear all tiles from current widget."""
+        self.tile_array['char'] = ' '
+        self.terminal.update_widget(self)
+
     @staticmethod
     def _serialize_charline(charline):
         # TODO consider serialization
