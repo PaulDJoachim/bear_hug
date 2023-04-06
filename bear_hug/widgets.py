@@ -21,7 +21,7 @@ from time import time
 import numpy as np
 from profilehooks import profile
 import copy
-from tile_types import render_dt, Color
+from tile_types import render_dt, Color, Tile
 
 
 def deserialize_widget(serial, atlas=None):
@@ -170,14 +170,16 @@ class Widget:
     :param z_level: a Z-level to determine objects' overlap. Used by (Scrollable)ECSLayout. Not to be mixed up with a terminal layer, these are two independent systems.
     :param font: simple font object, provided by widget. Characters will be drawn in this font instead of default (terminal must be configured with font_of same name).
     """
-    def __init__(self, tile_array, z_level=0, terminal=None, **kwargs):
+    def __init__(self, tile_array, layer=0, pos=(0,0), terminal=None, **kwargs):
 
-        self.z_level = z_level
-        self.tile_array = tile_array
+        self.layer = layer  # the terminal layer to display on
+        self.pos = pos
+        self.tile_array = tile_array  # numpy array of (char, color) data for display
         self.font_size = kwargs.get('font_size')  # a string specifying terminal font to use, terminal uses default font if None
         self.hidden = False  # skips this widget's tile data when rendering
         self._terminal = terminal  # A widget may want to know about the terminal it's attached to
         self._parent = None  # Or a parent
+        self._display = None  # or the display size
 
     def on_event(self, event):
         # Root widget does not raise anything here, because Widget() can be
@@ -206,6 +208,10 @@ class Widget:
             raise BearException(
                 'Only a widget or terminal can be a widget\'s parent')
         self._parent = value
+
+    @property
+    def display(self):
+        return self._display
         
     @property
     def height(self):
@@ -1065,11 +1071,12 @@ class Label(Widget):
     :param height: text area height. Defaults to the line count in `text`
     """
     
-    def __init__(self, text, just='left', color='white', text_width=None, **kwargs):
+    def __init__(self, text, just='left', color='white', bkcolor=0xFF000000, text_width=None, **kwargs):
 
         self.tile_array = None
         self.text_width = text_width
         self.color = color
+        self.bkcolor = bkcolor
         self.just = just
         self.text = text
 
@@ -1105,8 +1112,9 @@ class Label(Widget):
             new_lines.append(new_line)
 
         # create a new array of appropriate size for the width and line count
-        tile_array = np.full(shape=(line_count, self.text_width), dtype=render_dt, fill_value=render_dt)
+        tile_array = np.full(shape=(line_count, self.text_width), fill_value=Tile.AIR.value, dtype=render_dt)
         tile_array['color'] = self.color
+        tile_array['bkcolor'] = self.bkcolor
 
         for index in range(len(new_lines)):
             line = new_lines[index]
@@ -1262,22 +1270,27 @@ class MenuWidget(Layout):
     """
     def __init__(self, dispatcher, terminal=None, items=[], header=None,
                  color=Color.WHITE,
+                 bkcolor=0xFF000000,
                  items_pos=(2, 2),
                  switch_sound=None,
                  activation_sound=None,
+                 display=None,
                  **kwargs):
         self.items = []
         self.dispatcher = dispatcher
         self.color = color
+        self.bkcolor = bkcolor
         self.items_pos = items_pos
         height = len(items) * 3 + 4
         width = max([item.tile_array.shape[1] for item in items]) + 4
         menu_array = generate_square((height, width), 'double')
         menu_array['color'] = self.color
+        menu_array['bkcolor'] = self.bkcolor
         menu_array[1:-1, 1:-1]['char'] = '█'
-        menu_array[1:-1, 1:-1]['color'] = 'transparent'
+        menu_array[1:-1, 1:-1]['color'] = 0x00000000
+        pos = (display.tiles_x_count-width * 2)//2, (display.tiles_y_count-height * 2)//2
 
-        super().__init__(tile_array=menu_array, **kwargs)
+        super().__init__(tile_array=menu_array, terminal=terminal, pos=pos, **kwargs)
 
         # if terminal and not isinstance(terminal, BearTerminal):
         #     raise TypeError(f'{type(terminal)} used as a terminal for MenuWidget instead of BearTerminal')
@@ -1299,7 +1312,7 @@ class MenuWidget(Layout):
                 raise TypeError(f'{type(header)} used instead of string for MenuWidget header')
             if len(header) > menu_array.shape[1] - 2:
                 raise BearLayoutException(f'MenuWidget header is too long')
-            header_label = Label(header, color=self.color)
+            header_label = Label(header, color=self.color, bkcolor=self.bkcolor)
             x = (menu_array.shape[1] - header_label.width) // 2
             self.add_child(header_label, (0, x))
 
@@ -1346,17 +1359,19 @@ class MenuWidget(Layout):
                 have_switched = True
                 self.current_highlight += 1
             elif event.event_value == 'TK_MOUSE_LEFT':
-                if self.terminal:
-                    # Silently ignore mouse input if terminal is not set
-                    mouse_x = self.terminal.check_state('TK_MOUSE_X')
-                    mouse_y = self.terminal.check_state('TK_MOUSE_Y')
-                    x, y = self.terminal.widget_locations[self].pos
-                    if x <= mouse_x <= x + self.width and y <= mouse_y <= y + self.height:
-                        b = self.get_child_on_pos((mouse_x - x, mouse_y -y))
-                        # self.current_highlight = self.items.index(b)
-                        if isinstance(b, MenuItem):
-                            have_activated = True
-                            r = self.children[self.current_highlight].activate()
+                pass
+                # TODO enable mouse input?
+                # if self.terminal:
+                #     # Silently ignore mouse input if terminal is not set
+                #     mouse_x = self.terminal.check_state('TK_MOUSE_X')
+                #     mouse_y = self.terminal.check_state('TK_MOUSE_Y')
+                #     x, y = self.terminal.widget_locations[self].pos
+                #     if x <= mouse_x <= x + self.width and y <= mouse_y <= y + self.height:
+                #         b = self.get_child_on_pos((mouse_x - x, mouse_y -y))
+                #         # self.current_highlight = self.items.index(b)
+                #         if isinstance(b, MenuItem):
+                #             have_activated = True
+                #             r = self.children[self.current_highlight].activate()
         elif event.event_type == 'misc_input' and event.event_value == 'TK_MOUSE_MOVE':
             if self.terminal:
                 # Silently ignore mouse input if terminal is not set
@@ -1434,7 +1449,6 @@ class MenuItem(Widget):
         self.highlight_color = highlight_color
         # Widget generation
         label = Label(text, color=self.color)
-        # print(label.tile_array)
         self.tile_array = generate_square((label.height+2, label.width+2), 'single', color)
         self.tile_array[1, 1:label.width + 1] = label.tile_array
         super().__init__(self.tile_array)
