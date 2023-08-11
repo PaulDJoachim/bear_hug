@@ -6,7 +6,7 @@ Includes a series of useful functions and all bear_hug exception classes.
 
 from copy import deepcopy
 import numpy as np
-from tile_types import render_dt, Tile
+from data_structures.tile_types import render_dt, Tile
 
 
 def shapes_equal(a, b):

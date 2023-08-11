@@ -7,11 +7,10 @@ entities are recommended.
 
 
 import inspect
-import pprint
 
 from bear_hug.bear_hug import BearTerminal
-from bear_hug.bear_utilities import shapes_equal, blit, copy_shape,\
-    slice_nested, generate_box, generate_square,\
+from bear_hug.bear_utilities import shapes_equal, copy_shape,\
+    slice_nested, generate_square,\
     BearException, BearLayoutException, BearJSONException
 from bear_hug.event import BearEvent
 
@@ -19,9 +18,7 @@ from collections import deque
 from json import dumps, loads
 from time import time
 import numpy as np
-from profilehooks import profile
-import copy
-from tile_types import render_dt, Color, Tile
+from data_structures.tile_types import render_dt, Color, Tile
 
 
 def deserialize_widget(serial, atlas=None):
